@@ -8,6 +8,7 @@ import logging
 import os
 import sqlite3
 
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -18,7 +19,7 @@ from aiogram.types import (
     KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove,
 )
 
-TOKEN = os.getenv("BOT_TOKEN", "9177446332:AAGy4J6bHjEIr7GS-gnAUFvJkKlOjboWRn4")
+TOKEN = os.getenv("BOT_TOKEN")
 DB_PATH = "admatch.db"
 
 router = Router()
@@ -344,11 +345,25 @@ async def back(c: CallbackQuery):
 
 
 # ---------------------- RUN ----------------------
+async def health(request):
+    return web.Response(text="AdMatch Bot ishlayapti")
+
+
 async def main():
     logging.basicConfig(level=logging.INFO)
+    if not TOKEN:
+        raise SystemExit("BOT_TOKEN o'rnatilmagan!")
     bot = Bot(TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
+
+    # Render Web Service port ochilishini talab qiladi
+    app = web.Application()
+    app.router.add_get("/", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 10000))).start()
+
     await dp.start_polling(bot)
 
 
