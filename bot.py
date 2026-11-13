@@ -142,7 +142,10 @@ SCHEMA_STATEMENTS = [
         max_age INT DEFAULT 70,
         created_at TIMESTAMPTZ DEFAULT now(),
         last_seen TIMESTAMPTZ DEFAULT now()
-    )""",
+    )""",await conn.execute("""
+    ALTER TABLE payments
+    ADD COLUMN IF NOT EXISTS file_uid TEXT
+""")
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS looking_for TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS bonus_likes INT DEFAULT 0",
