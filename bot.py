@@ -203,6 +203,15 @@ SCHEMA_STATEMENTS = [
         created_at TIMESTAMPTZ DEFAULT now(),
         decided_at TIMESTAMPTZ
     )""",
+    # Eski PostgreSQL bazalarini yangilash: mavjud payments jadvaliga kerakli ustunlarni qo'shadi.
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS promo_code TEXT",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS discount INT DEFAULT 0",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS file_uid TEXT",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS file_type TEXT",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS admin_id BIGINT",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS reason TEXT",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS admin_reminded BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_pay_pending ON payments(user_id) WHERE status='pending'",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_pay_file ON payments(file_uid) WHERE status IN ('pending','approved')",
     "CREATE INDEX IF NOT EXISTS idx_pay_status ON payments(status, created_at)",
