@@ -13,6 +13,8 @@ Eslatma: CHANNEL, DAILY_LIKES, VIP_CONTACT, narxlar keyin admin paneldan ham o'z
 
 Bot jadvallarini bazadagi alohida "admatch" schema ichida yaratadi,
 shuning uchun eski jadvallar bilan aralashib ketmaydi.
+
+pgbouncer (Supabase/Neon pooler) bilan ishlashi uchun statement_cache_size=0 qo'yilgan.
 """
 import asyncio
 import csv
@@ -85,66 +87,65 @@ def money(v):
         return str(v)
 
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users(
-    id BIGINT PRIMARY KEY,
-    username TEXT,
-    name TEXT, gender TEXT, age INT, city TEXT,
-    photo TEXT, interests TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    is_banned BOOLEAN DEFAULT FALSE,
-    vip_until TIMESTAMPTZ,
-    min_age INT DEFAULT 16,
-    max_age INT DEFAULT 70,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    last_seen TIMESTAMPTZ DEFAULT now()
-);
-ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT '';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS looking_for TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS bonus_likes INT DEFAULT 0;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by BIGINT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_bot BOOLEAN DEFAULT FALSE;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_warned BOOLEAN DEFAULT FALSE;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS last_reminded TIMESTAMPTZ;
-
-CREATE TABLE IF NOT EXISTS reactions(
-    from_id BIGINT, to_id BIGINT, value SMALLINT,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY(from_id, to_id)
-);
-CREATE TABLE IF NOT EXISTS matches(
-    a BIGINT, b BIGINT, created_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY(a, b)
-);
-CREATE TABLE IF NOT EXISTS reports(
-    id SERIAL PRIMARY KEY, from_id BIGINT, to_id BIGINT,
-    created_at TIMESTAMPTZ DEFAULT now(), handled BOOLEAN DEFAULT FALSE
-);
-CREATE TABLE IF NOT EXISTS daily_likes(
-    user_id BIGINT, day DATE, cnt INT DEFAULT 0,
-    PRIMARY KEY(user_id, day)
-);
-CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE IF NOT EXISTS admin_logs(
-    id SERIAL PRIMARY KEY, admin_id BIGINT, action TEXT, target_id BIGINT,
-    details TEXT, created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS vip_log(
-    id SERIAL PRIMARY KEY, user_id BIGINT, days INT, admin_id BIGINT,
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_reactions_to ON reactions(to_id, value);
-CREATE INDEX IF NOT EXISTS idx_reactions_from ON reactions(from_id);
-CREATE INDEX IF NOT EXISTS idx_matches_b ON matches(b);
-CREATE INDEX IF NOT EXISTS idx_users_search ON users(is_active, is_banned, gender, age);
-CREATE INDEX IF NOT EXISTS idx_users_city ON users(lower(city));
-CREATE INDEX IF NOT EXISTS idx_users_vip ON users(vip_until);
-CREATE INDEX IF NOT EXISTS idx_users_seen ON users(last_seen);
-CREATE INDEX IF NOT EXISTS idx_users_username ON users(lower(username));
-CREATE INDEX IF NOT EXISTS idx_users_ref ON users(referred_by);
-CREATE INDEX IF NOT EXISTS idx_reports_open ON reports(handled, id);
-"""
+# Har bir statement alohida ishga tushiriladi (pgbouncer bilan xavfsizroq)
+SCHEMA_STATEMENTS = [
+    """CREATE TABLE IF NOT EXISTS users(
+        id BIGINT PRIMARY KEY,
+        username TEXT,
+        name TEXT, gender TEXT, age INT, city TEXT,
+        photo TEXT, interests TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        is_banned BOOLEAN DEFAULT FALSE,
+        vip_until TIMESTAMPTZ,
+        min_age INT DEFAULT 16,
+        max_age INT DEFAULT 70,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        last_seen TIMESTAMPTZ DEFAULT now()
+    )""",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS looking_for TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS bonus_likes INT DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by BIGINT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_bot BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_warned BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_reminded TIMESTAMPTZ",
+    """CREATE TABLE IF NOT EXISTS reactions(
+        from_id BIGINT, to_id BIGINT, value SMALLINT,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        PRIMARY KEY(from_id, to_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS matches(
+        a BIGINT, b BIGINT, created_at TIMESTAMPTZ DEFAULT now(),
+        PRIMARY KEY(a, b)
+    )""",
+    """CREATE TABLE IF NOT EXISTS reports(
+        id SERIAL PRIMARY KEY, from_id BIGINT, to_id BIGINT,
+        created_at TIMESTAMPTZ DEFAULT now(), handled BOOLEAN DEFAULT FALSE
+    )""",
+    """CREATE TABLE IF NOT EXISTS daily_likes(
+        user_id BIGINT, day DATE, cnt INT DEFAULT 0,
+        PRIMARY KEY(user_id, day)
+    )""",
+    "CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)",
+    """CREATE TABLE IF NOT EXISTS admin_logs(
+        id SERIAL PRIMARY KEY, admin_id BIGINT, action TEXT, target_id BIGINT,
+        details TEXT, created_at TIMESTAMPTZ DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS vip_log(
+        id SERIAL PRIMARY KEY, user_id BIGINT, days INT, admin_id BIGINT,
+        created_at TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_reactions_to ON reactions(to_id, value)",
+    "CREATE INDEX IF NOT EXISTS idx_reactions_from ON reactions(from_id)",
+    "CREATE INDEX IF NOT EXISTS idx_matches_b ON matches(b)",
+    "CREATE INDEX IF NOT EXISTS idx_users_search ON users(is_active, is_banned, gender, age)",
+    "CREATE INDEX IF NOT EXISTS idx_users_city ON users(lower(city))",
+    "CREATE INDEX IF NOT EXISTS idx_users_vip ON users(vip_until)",
+    "CREATE INDEX IF NOT EXISTS idx_users_seen ON users(last_seen)",
+    "CREATE INDEX IF NOT EXISTS idx_users_username ON users(lower(username))",
+    "CREATE INDEX IF NOT EXISTS idx_users_ref ON users(referred_by)",
+    "CREATE INDEX IF NOT EXISTS idx_reports_open ON reports(handled, id)",
+]
 
 
 # ====================== DB YORDAMCHILARI ======================
@@ -1583,25 +1584,48 @@ async def on_error(event: ErrorEvent):
     return True
 
 
+async def create_db_pool():
+    """
+    pgbouncer (transaction rejimi) bilan ham ishlaydi:
+    statement_cache_size=0 -> "prepared statement already exists" xatosi chiqmaydi.
+    """
+    ssl = "require" if "render.com" in DATABASE_URL else None
+    base = dict(ssl=ssl, statement_cache_size=0)
+
+    con = await asyncpg.connect(DATABASE_URL, **base)
+    try:
+        await con.execute(f"CREATE SCHEMA IF NOT EXISTS {DB_SCHEMA}")
+    finally:
+        await con.close()
+
+    async def _init(c):
+        await c.execute(f"SET search_path TO {DB_SCHEMA}")
+
+    # 1-urinish: search_path ni startup parametri sifatida berish (direct ulanishda eng yaxshi)
+    try:
+        p = await asyncpg.create_pool(
+            DATABASE_URL, min_size=1, max_size=10,
+            server_settings={"search_path": DB_SCHEMA}, **base)
+        await p.execute("SELECT 1")
+        return p
+    except Exception as e:
+        log.warning("server_settings bilan ulanib bo'lmadi (%s), init bilan urinaman", e)
+
+    # 2-urinish: pgbouncer startup parametrini qabul qilmasa, ulanishdan keyin SET qilamiz
+    p = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=10, init=_init, **base)
+    await p.execute("SELECT 1")
+    return p
+
+
 async def main():
     global pool, BOT_USERNAME
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if not TOKEN or not DATABASE_URL:
         raise SystemExit("BOT_TOKEN va DATABASE_URL o'rnatilmagan!")
 
-    ssl = "require" if "render.com" in DATABASE_URL else None
-
-    # Bot jadvallari alohida schema ichida: eski jadvallar bilan to'qnashmaydi
-    con = await asyncpg.connect(DATABASE_URL, ssl=ssl)
-    try:
-        await con.execute(f"CREATE SCHEMA IF NOT EXISTS {DB_SCHEMA}")
-    finally:
-        await con.close()
-
-    pool = await asyncpg.create_pool(
-        DATABASE_URL, min_size=1, max_size=10, ssl=ssl,
-        server_settings={"search_path": DB_SCHEMA})
-    await pool.execute(SCHEMA)
+    pool = await create_db_pool()
+    for stmt in SCHEMA_STATEMENTS:
+        await pool.execute(stmt)
     await load_cfg()
 
     bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
