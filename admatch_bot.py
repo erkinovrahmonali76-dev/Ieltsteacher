@@ -10,6 +10,9 @@ Muhit o'zgaruvchilari (Render -> Environment):
   DAILY_LIKES   - bepul foydalanuvchi uchun kunlik layk (standart 30)
   VIP_CONTACT   - VIP uchun yoziladigan akkaunt (@admin)
 Eslatma: CHANNEL, DAILY_LIKES, VIP_CONTACT keyin admin paneldan ham o'zgartiriladi.
+
+Bot jadvallarini bazadagi alohida "admatch" schema ichida yaratadi,
+shuning uchun eski jadvallar bilan aralashib ketmaydi.
 """
 import asyncio
 import csv
@@ -44,6 +47,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x.isdigit()}
 PORT = int(os.getenv("PORT", "10000"))
+DB_SCHEMA = "admatch"
 
 DEFAULTS = {
     "daily_likes": os.getenv("DAILY_LIKES", "30"),
@@ -1479,7 +1483,17 @@ async def main():
         raise SystemExit("BOT_TOKEN va DATABASE_URL o'rnatilmagan!")
 
     ssl = "require" if "render.com" in DATABASE_URL else None
-    pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=10, ssl=ssl)
+
+    # Bot jadvallari alohida schema ichida: eski jadvallar bilan to'qnashmaydi
+    con = await asyncpg.connect(DATABASE_URL, ssl=ssl)
+    try:
+        await con.execute(f"CREATE SCHEMA IF NOT EXISTS {DB_SCHEMA}")
+    finally:
+        await con.close()
+
+    pool = await asyncpg.create_pool(
+        DATABASE_URL, min_size=1, max_size=10, ssl=ssl,
+        server_settings={"search_path": DB_SCHEMA})
     await pool.execute(SCHEMA)
     await load_cfg()
 
