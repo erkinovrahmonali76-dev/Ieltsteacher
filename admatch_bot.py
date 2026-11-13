@@ -1,19 +1,27 @@
 """
-AdMatch Bot PRO v3 - Telegram tanishuv boti
+AdMatch Bot PRO v4 - Telegram tanishuv boti (VIP PREMIUM to'lov tizimi bilan)
 Stack: aiogram 3 + PostgreSQL (asyncpg) + aiohttp (Render Web Service uchun)
 
 Muhit o'zgaruvchilari (Render -> Environment):
   BOT_TOKEN     - BotFather tokeni (majburiy)
   DATABASE_URL  - Postgres manzili (majburiy)
-  ADMIN_IDS     - admin Telegram ID lari, vergul bilan (12345,67890)
+  ADMIN_IDS     - admin Telegram ID lari, vergul bilan (12345,67890)  (majburiy: cheklar adminlarga boradi)
   CHANNEL       - majburiy obuna kanali (@kanal), ixtiyoriy
   DAILY_LIKES   - bepul foydalanuvchi uchun kunlik layk (standart 30)
-  VIP_CONTACT   - VIP uchun yoziladigan akkaunt (@admin)
-Eslatma: CHANNEL, DAILY_LIKES, VIP_CONTACT, narxlar keyin admin paneldan ham o'zgartiriladi.
+  VIP_CONTACT   - yordam uchun akkaunt (@admin)
 
-Bot jadvallarini bazadagi alohida "admatch" schema ichida yaratadi,
-shuning uchun eski jadvallar bilan aralashib ketmaydi.
+Karta raqami, karta egasi, narxlar, referal bonuslari va boshqalar admin paneldan
+(/admin -> Sozlamalar) o'zgartiriladi.
 
+YANGI (v4):
+  * To'lov: foydalanuvchi tarif tanlaydi -> kartaga o'tkazadi -> chek (rasm/PDF) yuboradi
+    -> chek adminlarga ✅/❌ tugmalari bilan boradi -> tasdiqlansa VIP avtomatik yoqiladi
+  * Rad etish sabablari, takroriy chek himoyasi, kunlik urinish limiti
+  * Promokodlar (/promo), referal uchun VIP bonus, kunlik bonus (streak), super layk ⭐
+  * Daromad statistikasi, to'lovlar CSV, to'lovlarim tarixi
+  * VIP tugashi haqida ogohlantirish/xabar, kutilayotgan to'lovlar eslatmasi
+
+Bot jadvallarini bazadagi alohida "admatch" schema ichida yaratadi.
 pgbouncer (Supabase/Neon pooler) bilan ishlashi uchun statement_cache_size=0 qo'yilgan.
 """
 import asyncio
@@ -57,12 +65,34 @@ DEFAULTS = {
     "vip_contact": os.getenv("VIP_CONTACT", "@admin"),
     "channel": os.getenv("CHANNEL", "").strip(),
     "ref_bonus": "10",
+    "ref_vip_days": "3",       # do'sti VIP sotib olsa, taklif qiluvchiga beriladigan VIP kunlar
+    "super_daily": "5",        # VIP uchun kunlik super layk limiti
     "maintenance": "0",
     "welcome": "Bu yerda yangi insonlar bilan tanishishingiz mumkin.",
     "price_week": "35000",
     "price_month": "65000",
+    "price_quarter": "170000",
+    "card_number": "",
+    "card_owner": "",
 }
 CFG = dict(DEFAULTS)  # DB dagi qiymatlar bilan almashtiriladi
+
+# tarif kaliti: (kunlar, tugma matni)
+PLANS = {
+    "week": (7, "⏳ 1 hafta"),
+    "month": (30, "📅 1 oy"),
+    "quarter": (90, "💎 3 oy"),
+}
+PLAN_RE = "(week|month|quarter)"
+
+REJECT_REASONS = {
+    "1": "Chek aniq emas yoki noto'g'ri",
+    "2": "To'lov summasi mos kelmadi",
+    "3": "To'lov hisobimizga tushmadi",
+    "4": "Chek takroriy yoki haqiqiy emas",
+}
+STATUS_TXT = {"pending": "⏳ kutilmoqda", "approved": "✅ tasdiqlangan", "rejected": "❌ rad etilgan"}
+MAX_PAY_TRIES_24H = 5
 
 pool: asyncpg.Pool = None
 BOT_USERNAME = ""
@@ -87,6 +117,15 @@ def money(v):
         return str(v)
 
 
+def plan_price(plan, percent=0):
+    base = cfg_int(f"price_{plan}")
+    return max(base * (100 - percent) // 100, 0)
+
+
+def contact_url():
+    return f"https://t.me/{CFG['vip_contact'].lstrip('@')}"
+
+
 # Har bir statement alohida ishga tushiriladi (pgbouncer bilan xavfsizroq)
 SCHEMA_STATEMENTS = [
     """CREATE TABLE IF NOT EXISTS users(
@@ -109,6 +148,10 @@ SCHEMA_STATEMENTS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_bot BOOLEAN DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_warned BOOLEAN DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_reminded TIMESTAMPTZ",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_expired_sent BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_applied TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_bonus DATE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS streak INT DEFAULT 0",
     """CREATE TABLE IF NOT EXISTS reactions(
         from_id BIGINT, to_id BIGINT, value SMALLINT,
         created_at TIMESTAMPTZ DEFAULT now(),
@@ -126,6 +169,10 @@ SCHEMA_STATEMENTS = [
         user_id BIGINT, day DATE, cnt INT DEFAULT 0,
         PRIMARY KEY(user_id, day)
     )""",
+    """CREATE TABLE IF NOT EXISTS daily_super(
+        user_id BIGINT, day DATE, cnt INT DEFAULT 0,
+        PRIMARY KEY(user_id, day)
+    )""",
     "CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)",
     """CREATE TABLE IF NOT EXISTS admin_logs(
         id SERIAL PRIMARY KEY, admin_id BIGINT, action TEXT, target_id BIGINT,
@@ -134,6 +181,47 @@ SCHEMA_STATEMENTS = [
     """CREATE TABLE IF NOT EXISTS vip_log(
         id SERIAL PRIMARY KEY, user_id BIGINT, days INT, admin_id BIGINT,
         created_at TIMESTAMPTZ DEFAULT now()
+    )""",
+    # ---- to'lovlar
+    """CREATE TABLE IF NOT EXISTS payments(
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        plan TEXT NOT NULL,
+        days INT NOT NULL,
+        amount BIGINT NOT NULL,
+        promo_code TEXT,
+        discount INT DEFAULT 0,
+        file_id TEXT NOT NULL,
+        file_uid TEXT NOT NULL,
+        file_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        admin_id BIGINT,
+        reason TEXT,
+        admin_reminded BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        decided_at TIMESTAMPTZ
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_pay_pending ON payments(user_id) WHERE status='pending'",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_pay_file ON payments(file_uid) WHERE status IN ('pending','approved')",
+    "CREATE INDEX IF NOT EXISTS idx_pay_status ON payments(status, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_pay_user ON payments(user_id)",
+    """CREATE TABLE IF NOT EXISTS payment_msgs(
+        payment_id INT, admin_id BIGINT, message_id BIGINT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_paymsgs ON payment_msgs(payment_id)",
+    # ---- promokodlar
+    """CREATE TABLE IF NOT EXISTS promos(
+        code TEXT PRIMARY KEY,
+        percent INT NOT NULL,
+        max_uses INT DEFAULT 0,
+        used INT DEFAULT 0,
+        expires_at TIMESTAMPTZ,
+        active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMPTZ DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS promo_uses(
+        code TEXT, user_id BIGINT, created_at TIMESTAMPTZ DEFAULT now(),
+        PRIMARY KEY(code, user_id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_reactions_to ON reactions(to_id, value)",
     "CREATE INDEX IF NOT EXISTS idx_reactions_from ON reactions(from_id)",
@@ -202,6 +290,18 @@ async def like_allowed(me):
     return bool(ok)
 
 
+async def super_allowed(uid):
+    """VIP uchun kunlik super layk limiti (atomik)."""
+    limit = cfg_int("super_daily")
+    if limit <= 0:
+        return False
+    row = await pool.fetchrow(
+        "INSERT INTO daily_super(user_id,day,cnt) VALUES($1,CURRENT_DATE,1) "
+        "ON CONFLICT (user_id,day) DO UPDATE SET cnt=daily_super.cnt+1 "
+        "WHERE daily_super.cnt<$2 RETURNING cnt", uid, limit)
+    return bool(row)
+
+
 async def likes_left(me):
     if is_vip(me):
         return "cheksiz"
@@ -246,21 +346,58 @@ async def delete_user_data(uid):
             await con.execute("DELETE FROM reactions WHERE from_id=$1 OR to_id=$1", uid)
             await con.execute("DELETE FROM matches WHERE a=$1 OR b=$1", uid)
             await con.execute("DELETE FROM daily_likes WHERE user_id=$1", uid)
+            await con.execute("DELETE FROM daily_super WHERE user_id=$1", uid)
             await con.execute("UPDATE reports SET handled=TRUE WHERE to_id=$1 OR from_id=$1", uid)
             await con.execute("UPDATE users SET referred_by=NULL WHERE referred_by=$1", uid)
             await con.execute("DELETE FROM users WHERE id=$1", uid)
+    # to'lovlar tarixi (moliyaviy hisobot uchun) saqlanib qoladi
 
 
-async def grant_vip(bot, admin_id, uid, days):
-    await pool.execute(
+async def apply_vip(con, uid, days, admin_id):
+    """VIP muddatini uzaytiradi (tranzaksiya ichida ishlatish uchun)."""
+    await con.execute(
         "UPDATE users SET vip_until=GREATEST(COALESCE(vip_until, now()), now()) + $2 * interval '1 day', "
-        "vip_warned=FALSE WHERE id=$1", uid, days)
-    await pool.execute("INSERT INTO vip_log(user_id,days,admin_id) VALUES($1,$2,$3)", uid, days, admin_id)
+        "vip_warned=FALSE, vip_expired_sent=FALSE WHERE id=$1", uid, days)
+    await con.execute("INSERT INTO vip_log(user_id,days,admin_id) VALUES($1,$2,$3)", uid, days, admin_id)
+
+
+async def grant_vip(bot, admin_id, uid, days, notify=True):
+    async with pool.acquire() as con:
+        async with con.transaction():
+            await apply_vip(con, uid, days, admin_id)
     await log_admin(admin_id, "vip", uid, f"+{days} kun")
-    try:
-        await bot.send_message(uid, f"👑 Tabriklaymiz! Sizga {days} kunlik VIP berildi.")
-    except Exception:
-        pass
+    if notify:
+        try:
+            await bot.send_message(uid, f"👑 Tabriklaymiz! Sizga {days} kunlik VIP berildi.")
+        except Exception:
+            pass
+
+
+# ====================== PROMOKOD ======================
+async def promo_check(code, uid):
+    """(promo_row, None) yoki (None, xato_matni)"""
+    p = await pool.fetchrow("SELECT * FROM promos WHERE code=$1", code)
+    if not p or not p["active"]:
+        return None, "Bunday promokod topilmadi"
+    if p["expires_at"] and p["expires_at"] < datetime.now(timezone.utc):
+        return None, "Promokod muddati tugagan"
+    if p["max_uses"] and p["used"] >= p["max_uses"]:
+        return None, "Promokod limiti tugagan"
+    if await pool.fetchval("SELECT 1 FROM promo_uses WHERE code=$1 AND user_id=$2", code, uid):
+        return None, "Siz bu promokoddan allaqachon foydalangansiz"
+    return p, None
+
+
+async def promo_percent(uid):
+    """Foydalanuvchida qo'llangan promokod: (kod, foiz) yoki (None, 0)."""
+    code = await pool.fetchval("SELECT promo_applied FROM users WHERE id=$1", uid)
+    if not code:
+        return None, 0
+    p, err = await promo_check(code, uid)
+    if err:
+        await pool.execute("UPDATE users SET promo_applied=NULL WHERE id=$1", uid)
+        return None, 0
+    return code, p["percent"]
 
 
 # ====================== KLAVIATURALAR / MATN ======================
@@ -309,7 +446,8 @@ def skip_kb():
 
 def react_kb(target_id, src):
     return kb(
-        [btn("❤️", f"lk:{target_id}:{src}"), btn("👎", f"ds:{target_id}:{src}")],
+        [btn("❤️", f"lk:{target_id}:{src}"), btn("⭐", f"sl:{target_id}:{src}"),
+         btn("👎", f"ds:{target_id}:{src}")],
         [btn("💬 Lichkasiga yozish", f"dm:{target_id}")],
         [btn("🚩 Shikoyat", f"rp:{target_id}:{src}"), btn("⬅️ Orqaga", "back")],
     )
@@ -434,6 +572,14 @@ class VipSearch(StatesGroup):
     q = State()
 
 
+class Pay(StatesGroup):
+    receipt = State()
+
+
+class PromoS(StatesGroup):
+    code = State()
+
+
 def validate(field, v):
     v = v.strip()
     if field in ("name", "city") and 2 <= len(v) <= 30:
@@ -483,6 +629,7 @@ async def cancel(m: Message, state: FSMContext):
 async def help_cmd(m: Message):
     await m.answer(
         "ℹ️ <b>Yordam</b>\n\n/start - botni boshlash\n/cancel - amalni bekor qilish\n"
+        f"👑 VIP olish: menyudagi «{B_VIP}» tugmasi\n"
         f"Savollar bo'lsa: {esc(CFG['vip_contact'])}")
 
 
@@ -611,6 +758,8 @@ def profile_kb():
 async def show_profile(m: Message, uid):
     u = await get_user(uid)
     status = "" if u["is_active"] else "\n\n🙈 <i>Anketangiz yashirilgan</i>"
+    if is_vip(u):
+        status += f"\n\n👑 <b>VIP faol:</b> {u['vip_until']:%d.%m.%Y} gacha"
     await m.answer_photo(u["photo"], caption=caption(u) + status, reply_markup=profile_kb())
 
 
@@ -817,7 +966,7 @@ async def notify_match(bot: Bot, to_user, other):
         pass
 
 
-async def handle_like(bot: Bot, me, tid):
+async def handle_like(bot: Bot, me, tid, superlike=False):
     uid = me["id"]
     await set_reaction(uid, tid, 1)
     target = await get_user(tid)
@@ -831,11 +980,13 @@ async def handle_like(bot: Bot, me, tid):
             "ON CONFLICT DO NOTHING", uid, tid)
         await notify_match(bot, me, target)
         await notify_match(bot, target, me)
-    elif prev is None:  # birinchi layk -> "sizga shu odam layk bosdi"
+    elif prev is None or superlike:  # birinchi layk yoki super layk -> bildirishnoma
+        head = ("⭐ <b>SUPER LAYK!</b> Sizga alohida qiziqish bildirdi:" if superlike
+                else "❤️ <b>Sizga shu odam layk bosdi:</b>")
         try:
             await bot.send_photo(
                 tid, me["photo"],
-                caption="❤️ <b>Sizga shu odam layk bosdi:</b>\n\n" + caption(me),
+                caption=head + "\n\n" + caption(me),
                 reply_markup=react_kb(uid, "n"))
         except TelegramForbiddenError:
             await pool.execute("UPDATE users SET blocked_bot=TRUE WHERE id=$1", tid)
@@ -843,19 +994,28 @@ async def handle_like(bot: Bot, me, tid):
             pass
 
 
-@router.callback_query(F.data.regexp(r"^(lk|ds|rp):\d+:[snlv]$"))
+@router.callback_query(F.data.regexp(r"^(lk|ds|rp|sl):\d+:[snlv]$"))
 async def react(c: CallbackQuery, bot: Bot):
     action, tid, src = c.data.split(":")
     tid, uid = int(tid), c.from_user.id
     me = await get_user(uid)
     if not me:
         return await c.answer("Avval /start bosing", show_alert=True)
+    if action == "sl":
+        if not is_vip(me):
+            await c.answer()
+            return await c.message.answer(
+                "⭐ <b>Super layk</b> faqat VIP uchun!\n\n" + vip_offer_text(),
+                reply_markup=kb(*await buy_rows(uid)))
+        if not await super_allowed(uid):
+            return await c.answer(
+                f"⭐ Bugungi super layk limiti ({cfg_int('super_daily')} ta) tugadi.", show_alert=True)
     if action == "lk" and not await like_allowed(me):
         return await c.answer(
             f"❌ Bugungi layk limiti ({cfg_int('daily_likes')} ta) tugadi.\n"
             "👑 VIP bilan cheklovsiz yoki do'st taklif qilib bonus oling!",
             show_alert=True)
-    await c.answer()
+    await c.answer("⭐ Super layk yuborildi!" if action == "sl" else None)
     try:
         await c.message.delete()
     except Exception:
@@ -874,7 +1034,7 @@ async def react(c: CallbackQuery, bot: Bot):
                 pass
         await bot.send_message(c.message.chat.id, "🚩 Shikoyat yuborildi, rahmat.")
     else:
-        await handle_like(bot, me, tid)
+        await handle_like(bot, me, tid, superlike=(action == "sl"))
 
     if src == "s":
         await send_next(bot, c.message.chat.id, uid)
@@ -905,26 +1065,25 @@ async def check_sub(c: CallbackQuery, bot: Bot):
         await c.answer("Hali obuna bo'lmadingiz ❌", show_alert=True)
 
 
-# ====================== VIP / LICHKAGA YOZISH / REFERAL ======================
-def buy_rows(uid):
-    ch = CFG["vip_contact"].lstrip("@")
-
-    def link(label):
-        text = quote(f"Salom! VIP {label} olmoqchiman. ID: {uid}")
-        return f"https://t.me/{ch}?text={text}"
-
-    return [
-        [btn(f"⏳ 1 hafta — {money(CFG['price_week'])} so'm", url=link("1 haftalik"))],
-        [btn(f"📅 1 oy — {money(CFG['price_month'])} so'm", url=link("1 oylik"))],
-    ]
+# ====================== VIP PREMIUM: TARIFLAR VA TO'LOV ======================
+async def buy_rows(uid=None):
+    """Tarif tugmalari (promokod bo'lsa chegirma bilan)."""
+    pct = 0
+    if uid:
+        _, pct = await promo_percent(uid)
+    rows = []
+    for key, (days, label) in PLANS.items():
+        price = plan_price(key, pct)
+        extra = f" (-{pct}%)" if pct else ""
+        rows.append([btn(f"{label} — {money(price)} so'm{extra}", f"buy:{key}")])
+    return rows
 
 
 def vip_offer_text():
+    prices = "\n".join(f"{label} — <b>{money(plan_price(k))} so'm</b>" for k, (d, label) in PLANS.items())
     return ("👑 <b>Bu funksiya faqat VIP PREMIUM uchun</b>\n\n"
-            "VIP bilan istalgan odamning lichkasiga yozasiz, layk cheksiz, "
-            "anketangiz birinchi ko'rsatiladi.\n\n"
-            f"⏳ 1 hafta — <b>{money(CFG['price_week'])} so'm</b>\n"
-            f"📅 1 oy — <b>{money(CFG['price_month'])} so'm</b>")
+            "VIP bilan istalgan odamning lichkasiga yozasiz, layk cheksiz, ⭐ super layk, "
+            "anketangiz birinchi ko'rsatiladi.\n\n" + prices)
 
 
 @router.message(F.text == B_VIP)
@@ -932,27 +1091,190 @@ async def vip(m: Message, bot: Bot):
     me = await gate(bot, m.from_user.id, m.chat.id)
     if not me:
         return
+    code, pct = await promo_percent(me["id"])
     rows = []
     if is_vip(me):
         status = f"✅ Faol: {me['vip_until']:%d.%m.%Y} gacha"
         rows.append([btn("🔎 Odam qidirish va lichkasiga yozish", "vs")])
     else:
         status = "❌ Faol emas"
-    rows += buy_rows(m.from_user.id)
+    rows += await buy_rows(me["id"])
+    rows.append([btn("🏷 Promokod", "promo"), btn("🧾 To'lovlarim", "mypays")])
+    prices = "\n".join(
+        f"{label} — <b>{money(plan_price(k, pct))} so'm</b>" for k, (d, label) in PLANS.items())
+    promo_line = f"\n🏷 Promokod: <b>{esc(code)}</b> (-{pct}%)" if code else ""
     await m.answer(
         "👑 <b>VIP PREMIUM</b>\n\n"
         "✅ Istalgan odamning lichkasiga yozish\n"
         "✅ Cheksiz layk\n"
+        f"✅ ⭐ Super layk (kuniga {cfg_int('super_daily')} ta)\n"
         "✅ Anketangiz qidiruvda birinchi ko'rsatiladi\n"
         "✅ Ismingiz yonida 👑 belgisi\n\n"
-        f"⏳ 1 hafta — <b>{money(CFG['price_week'])} so'm</b>\n"
-        f"📅 1 oy — <b>{money(CFG['price_month'])} so'm</b>\n\n"
+        f"{prices}{promo_line}\n\n"
         f"Qolgan layklar: <b>{await likes_left(me)}</b>\n"
         f"Holat: {status}\n\n"
-        "Tugmani bosing, admin bilan chat ochiladi. To'lovdan so'ng VIP yoqiladi.",
+        "Tarifni tanlang, kartaga to'lang va chekni yuboring. "
+        "Admin tasdiqlashi bilan VIP <b>avtomatik</b> yoqiladi ⚡️",
         reply_markup=kb(*rows))
 
 
+@router.callback_query(F.data.regexp(rf"^buy:{PLAN_RE}$"))
+async def buy_plan(c: CallbackQuery):
+    plan = c.data[4:]
+    me = await get_user(c.from_user.id)
+    if not me:
+        return await c.answer("Avval /start bosing", show_alert=True)
+    await c.answer()
+    days, label = PLANS[plan]
+    if not CFG["card_number"]:
+        return await c.message.answer(
+            "⚠️ To'lov rekvizitlari hali sozlanmagan. Iltimos, admin bilan bog'laning:",
+            reply_markup=kb([btn("🆘 Admin", url=contact_url())]))
+    code, pct = await promo_percent(me["id"])
+    amount = plan_price(plan, pct)
+    disc = f" (promokod -{pct}%)" if pct else ""
+    owner = f"👤 Karta egasi: <b>{esc(CFG['card_owner'])}</b>\n" if CFG["card_owner"] else ""
+    await c.message.answer(
+        f"💳 <b>To'lov: {label}</b>\n\n"
+        f"📦 Muddat: {days} kun\n"
+        f"💰 To'lov summasi: <b>{money(amount)} so'm</b>{disc}\n\n"
+        f"🏦 Karta raqami:\n<code>{esc(CFG['card_number'])}</code>\n{owner}\n"
+        "<b>Qadamlar:</b>\n"
+        "1️⃣ Yuqoridagi kartaga <b>aniq shu summani</b> o'tkazing\n"
+        "2️⃣ «📤 Chek yuborish» tugmasini bosing\n"
+        "3️⃣ To'lov chekini (skrinshot yoki PDF) yuboring\n"
+        "4️⃣ Admin tekshiradi va VIP avtomatik yoqiladi ⚡️",
+        reply_markup=kb(
+            [btn("📤 Chek yuborish", f"pay:{plan}")],
+            [btn("🏷 Promokod kiritish", "promo")],
+            [btn("🆘 Admin bilan bog'lanish", url=contact_url())],
+            [btn("⬅️ Orqaga", "back")]))
+
+
+@router.callback_query(F.data.regexp(rf"^pay:{PLAN_RE}$"))
+async def pay_start(c: CallbackQuery, state: FSMContext):
+    plan = c.data[4:]
+    me = await get_user(c.from_user.id)
+    if not me:
+        return await c.answer("Avval /start bosing", show_alert=True)
+    await c.answer()
+    pend = await pool.fetchval("SELECT id FROM payments WHERE user_id=$1 AND status='pending'", me["id"])
+    if pend:
+        return await c.message.answer(
+            f"⏳ Sizning #{pend} raqamli to'lovingiz hali ko'rib chiqilmoqda. Iltimos, kuting.")
+    await state.set_state(Pay.receipt)
+    await state.update_data(plan=plan)
+    await c.message.answer(
+        "📤 To'lov chekini <b>rasm</b> (skrinshot) yoki <b>PDF</b> ko'rinishida yuboring.\n\n"
+        "Bekor qilish: /cancel")
+
+
+@router.message(Pay.receipt, F.photo | F.document)
+async def pay_receipt(m: Message, state: FSMContext, bot: Bot):
+    d = await state.get_data()
+    plan = d.get("plan")
+    uid = m.from_user.id
+    me = await get_user(uid)
+    if plan not in PLANS or not me:
+        await state.clear()
+        return await m.answer("Xatolik. Qaytadan urinib ko'ring.", reply_markup=main_menu(uid))
+
+    if m.photo:
+        fid, fuid, ftype = m.photo[-1].file_id, m.photo[-1].file_unique_id, "photo"
+    else:
+        doc = m.document
+        mime = doc.mime_type or ""
+        if not (mime.startswith("image/") or mime == "application/pdf"):
+            return await m.answer("❌ Faqat rasm yoki PDF fayl yuboring.")
+        if doc.file_size and doc.file_size > 10 * 1024 * 1024:
+            return await m.answer("❌ Fayl juda katta (10 MB gacha).")
+        fid, fuid, ftype = doc.file_id, doc.file_unique_id, "document"
+
+    tries = await pool.fetchval(
+        "SELECT count(*) FROM payments WHERE user_id=$1 AND created_at>now()-interval '24 hours'", uid)
+    if tries >= MAX_PAY_TRIES_24H:
+        await state.clear()
+        return await m.answer("⛔ Bugun juda ko'p urinish bo'ldi. Ertaga qayta urinib ko'ring yoki "
+                              f"admin bilan bog'laning: {esc(CFG['vip_contact'])}")
+    if await pool.fetchval(
+            "SELECT 1 FROM payments WHERE file_uid=$1 AND status IN ('pending','approved')", fuid):
+        return await m.answer("❌ Bu chek avval yuborilgan. Iltimos, o'z to'lov chekingizni yuboring.")
+
+    code, pct = await promo_percent(uid)
+    amount = plan_price(plan, pct)
+    days = PLANS[plan][0]
+    try:
+        pid = await pool.fetchval(
+            "INSERT INTO payments(user_id,plan,days,amount,promo_code,discount,file_id,file_uid,file_type) "
+            "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
+            uid, plan, days, amount, code, pct, fid, fuid, ftype)
+    except asyncpg.UniqueViolationError:
+        await state.clear()
+        return await m.answer("⏳ Sizda ko'rib chiqilayotgan to'lov bor yoki bu chek takroriy.",
+                              reply_markup=main_menu(uid))
+    await state.clear()
+    await pool.execute("UPDATE users SET promo_applied=NULL WHERE id=$1", uid)
+
+    p = await pool.fetchrow("SELECT * FROM payments WHERE id=$1", pid)
+    sent = 0
+    for a in ADMIN_IDS:
+        if await send_payment_card(bot, a, p):
+            sent += 1
+    if not sent:
+        log.warning("To'lov #%s hech bir adminga yetib bormadi (ADMIN_IDS tekshiring)", pid)
+    await m.answer(
+        f"✅ <b>Chekingiz qabul qilindi!</b> (#{pid})\n\n"
+        f"📦 {PLANS[plan][1]} — {money(amount)} so'm\n"
+        "⏳ Admin tekshiradi, odatda 5–30 daqiqa ichida. Natija haqida shu yerda xabar beramiz.",
+        reply_markup=main_menu(uid))
+
+
+@router.message(Pay.receipt)
+async def pay_receipt_bad(m: Message):
+    await m.answer("📎 Iltimos, to'lov chekini rasm yoki PDF qilib yuboring.\nBekor qilish: /cancel")
+
+
+@router.callback_query(F.data == "mypays")
+async def my_pays(c: CallbackQuery):
+    await c.answer()
+    rows = await pool.fetch(
+        "SELECT * FROM payments WHERE user_id=$1 ORDER BY id DESC LIMIT 10", c.from_user.id)
+    if not rows:
+        return await c.message.answer("🧾 Hozircha to'lovlaringiz yo'q.")
+    lines = []
+    for p in rows:
+        line = (f"#{p['id']} · {p['created_at']:%d.%m.%Y} · {PLANS.get(p['plan'], ('', p['plan']))[1]} · "
+                f"{money(p['amount'])} so'm · {STATUS_TXT[p['status']]}")
+        if p["status"] == "rejected" and p["reason"]:
+            line += f"\n    ↳ {esc(p['reason'])}"
+        lines.append(line)
+    await c.message.answer("🧾 <b>To'lovlarim</b> (oxirgi 10 ta):\n\n" + "\n".join(lines))
+
+
+# ---- promokod kiritish
+@router.callback_query(F.data == "promo")
+async def promo_ask(c: CallbackQuery, state: FSMContext):
+    if not await get_user(c.from_user.id):
+        return await c.answer("Avval /start bosing", show_alert=True)
+    await c.answer()
+    await state.set_state(PromoS.code)
+    await c.message.answer("🏷 Promokodni yozing:\n\nBekor qilish: /cancel")
+
+
+@router.message(PromoS.code, F.text)
+async def promo_set(m: Message, state: FSMContext):
+    code = m.text.strip().upper()
+    p, err = await promo_check(code, m.from_user.id)
+    if err:
+        return await m.answer(f"❌ {err}. Boshqa kod yozing yoki /cancel.")
+    await pool.execute("UPDATE users SET promo_applied=$2 WHERE id=$1", m.from_user.id, code)
+    await state.clear()
+    await m.answer(f"✅ Promokod qabul qilindi: <b>-{p['percent']}%</b> chegirma!\n"
+                   "Endi tarifni tanlang 👇",
+                   reply_markup=kb(*await buy_rows(m.from_user.id)))
+
+
+# ---- VIP: lichkaga yozish / qidirish
 @router.callback_query(F.data.regexp(r"^dm:\d+$"))
 async def dm_open(c: CallbackQuery):
     me = await get_user(c.from_user.id)
@@ -960,7 +1282,7 @@ async def dm_open(c: CallbackQuery):
         return await c.answer("Avval /start bosing", show_alert=True)
     await c.answer()
     if not is_vip(me):
-        return await c.message.answer(vip_offer_text(), reply_markup=kb(*buy_rows(me["id"])))
+        return await c.message.answer(vip_offer_text(), reply_markup=kb(*await buy_rows(me["id"])))
     t = await get_user(int(c.data[3:]))
     if not t or t["is_banned"]:
         return await c.message.answer("Foydalanuvchi topilmadi.")
@@ -974,7 +1296,7 @@ async def vs_start(c: CallbackQuery, state: FSMContext):
     me = await get_user(c.from_user.id)
     await c.answer()
     if not me or not is_vip(me):
-        return await c.message.answer(vip_offer_text(), reply_markup=kb(*buy_rows(c.from_user.id)))
+        return await c.message.answer(vip_offer_text(), reply_markup=kb(*await buy_rows(c.from_user.id)))
     await state.set_state(VipSearch.q)
     await c.message.answer("🔎 Ism, @username yoki shahar yozing:\n/cancel - bekor")
 
@@ -984,7 +1306,7 @@ async def vs_find(m: Message, state: FSMContext, bot: Bot):
     me = await get_user(m.from_user.id)
     await state.clear()
     if not me or not is_vip(me):
-        return await m.answer(vip_offer_text(), reply_markup=kb(*buy_rows(m.from_user.id)))
+        return await m.answer(vip_offer_text(), reply_markup=kb(*await buy_rows(m.from_user.id)))
     q = m.text.strip().lstrip("@")
     rows = await pool.fetch(
         "SELECT * FROM users WHERE id<>$1 AND is_active AND NOT is_banned "
@@ -1001,18 +1323,48 @@ async def vs_find(m: Message, state: FSMContext, bot: Bot):
             pass
 
 
+# ====================== REFERAL / KUNLIK BONUS ======================
 @router.message(F.text == B_INV)
 async def invite(m: Message, bot: Bot):
     me = await gate(bot, m.from_user.id, m.chat.id)
     if not me:
         return
     n = await pool.fetchval("SELECT count(*) FROM users WHERE referred_by=$1", me["id"])
+    link = f"https://t.me/{BOT_USERNAME}?start=ref_{me['id']}"
+    share = f"https://t.me/share/url?url={quote(link)}&text={quote('AdMatch botida tanishing! ❤️')}"
+    vip_days = cfg_int("ref_vip_days")
+    vip_line = (f"👑 Do'stingiz VIP sotib olsa, sizga yana <b>+{vip_days} kun VIP</b>!\n"
+                if vip_days > 0 else "")
     await m.answer(
         "🎁 <b>Do'st taklif qiling</b>\n\n"
-        f"Har bir do'stingiz anketa to'ldirsa, sizga <b>+{cfg_int('ref_bonus')}</b> bonus layk beriladi.\n\n"
-        f"Sizning havolangiz:\n<code>https://t.me/{BOT_USERNAME}?start=ref_{me['id']}</code>\n\n"
+        f"Har bir do'stingiz anketa to'ldirsa, sizga <b>+{cfg_int('ref_bonus')}</b> bonus layk beriladi.\n"
+        f"{vip_line}\n"
+        f"Sizning havolangiz:\n<code>{link}</code>\n\n"
         f"👥 Taklif qilganlar: <b>{n}</b>\n"
-        f"💌 Qolgan layklar: <b>{await likes_left(me)}</b>")
+        f"💌 Qolgan layklar: <b>{await likes_left(me)}</b>\n"
+        f"🔥 Kunlik bonus seriyasi: <b>{me['streak'] or 0}</b> kun",
+        reply_markup=kb([btn("🎁 Kunlik bonus olish", "daily")],
+                        [btn("📤 Do'stlarga ulashish", url=share)]))
+
+
+@router.callback_query(F.data == "daily")
+async def daily_bonus(c: CallbackQuery):
+    me = await get_user(c.from_user.id)
+    if not me:
+        return await c.answer("Avval /start bosing", show_alert=True)
+    row = await pool.fetchrow(
+        """
+        UPDATE users SET
+            streak = CASE WHEN last_bonus = CURRENT_DATE - 1 THEN COALESCE(streak,0) + 1 ELSE 1 END,
+            last_bonus = CURRENT_DATE
+        WHERE id=$1 AND (last_bonus IS NULL OR last_bonus < CURRENT_DATE)
+        RETURNING streak
+        """, me["id"])
+    if not row:
+        return await c.answer("Bugungi bonusni olgansiz ✅\nErtaga qaytib keling!", show_alert=True)
+    bonus = 2 + min(row["streak"], 8)  # 3 dan 10 gacha, har kuni ko'payadi
+    await pool.execute("UPDATE users SET bonus_likes=bonus_likes+$2 WHERE id=$1", me["id"], bonus)
+    await c.answer(f"🎁 +{bonus} bonus layk!\n🔥 Ketma-ket: {row['streak']} kun", show_alert=True)
 
 
 # ====================== ADMIN PANEL ======================
@@ -1030,6 +1382,10 @@ class CfgS(StatesGroup):
     value = State()
 
 
+class AdmReject(StatesGroup):
+    reason = State()
+
+
 AUD = {
     "all": ("👥 Hammaga", "TRUE"),
     "Qiz": ("👩 Qizlarga", "gender='Qiz'"),
@@ -1043,10 +1399,11 @@ AUD = {
 def admin_kb():
     return kb(
         [btn("📊 Statistika", "adm:stats"), btn("📢 Xabar yuborish", "adm:bc")],
+        [btn("💳 To'lovlar", "adm:pays"), btn("💰 Daromad", "adm:rev")],
         [btn("🔎 Foydalanuvchi", "adm:user"), btn("🚩 Shikoyatlar", "adm:rep")],
         [btn("👑 VIP ro'yxati", "adm:vips"), btn("🚫 Bloklanganlar", "adm:bans")],
-        [btn("⚙️ Sozlamalar", "adm:cfg"), btn("📜 Loglar", "adm:logs")],
-        [btn("📥 CSV eksport", "adm:csv")],
+        [btn("🏷 Promokodlar", "adm:promos"), btn("⚙️ Sozlamalar", "adm:cfg")],
+        [btn("📜 Loglar", "adm:logs"), btn("📥 CSV eksport", "adm:csv")],
     )
 
 
@@ -1054,8 +1411,13 @@ def admin_kb():
 @admin.message(F.text == B_ADMIN)
 async def admin_panel(m: Message, state: FSMContext):
     await state.clear()
-    await m.answer("🛠 <b>Admin panel</b>\n\nTezkor buyruqlar:\n"
-                   "<code>/vip ID KUN</code>  <code>/ban ID</code>  <code>/unban ID</code>",
+    pend = await pool.fetchval("SELECT count(*) FROM payments WHERE status='pending'")
+    await m.answer("🛠 <b>Admin panel</b>\n\n"
+                   f"💳 Kutilayotgan to'lovlar: <b>{pend}</b>\n\n"
+                   "Tezkor buyruqlar:\n"
+                   "<code>/vip ID KUN</code>  <code>/ban ID</code>  <code>/unban ID</code>\n"
+                   "<code>/payments</code> — kutilayotgan to'lovlar\n"
+                   "<code>/promo KOD FOIZ [LIMIT] [KUN]</code>  <code>/delpromo KOD</code>",
                    reply_markup=admin_kb())
 
 
@@ -1115,13 +1477,14 @@ async def adm_stats(c: CallbackQuery):
     top = "\n".join(f" • {esc(x['c'])}: {x['n']}" for x in cities) or " —"
     tref = "\n".join(f" • <code>{x['id']}</code>: {x['n']}" for x in top_ref) or " —"
     pct = round(matches * 2 / s["total"] * 100) if s["total"] else 0
+    conv = round(s["vip"] / s["total"] * 100, 1) if s["total"] else 0
     await c.message.answer(
         "📊 <b>Statistika</b>\n\n"
         f"👥 Jami: <b>{s['total']}</b>\n"
         f"👨 Yigitlar: {s['boys']}   👩 Qizlar: {s['girls']}\n"
         f"🆕 Bugun qo'shilgan: {s['today']}\n"
         f"🟢 24 soatda faol: {s['active24']}   7 kunda: {s['active7']}\n"
-        f"👑 VIP: {s['vip']}\n"
+        f"👑 VIP: {s['vip']} ({conv}%)\n"
         f"🚫 Bloklangan: {s['banned']}   🙈 Yashirin: {s['hidden']}\n"
         f"⛔ Botni bloklaganlar: {s['blocked']}\n\n"
         f"❤️ Laykler: {r['likes']}   👎 Dislaykler: {r['dislikes']}\n"
@@ -1156,7 +1519,7 @@ async def bc_target(c: CallbackQuery, state: FSMContext):
 @admin.message(Command("cancel"))
 async def adm_cancel(m: Message, state: FSMContext):
     await state.clear()
-    await m.answer("Bekor qilindi.")
+    await m.answer("Bekor qilindi.", reply_markup=main_menu(m.from_user.id))
 
 
 @admin.message(Bc.content)
@@ -1414,27 +1777,349 @@ async def adm_rep_action(c: CallbackQuery, bot: Bot):
     await show_report(bot, c.message.chat.id)
 
 
+# ====================== ADMIN: TO'LOVLARNI TEKSHIRISH ======================
+def pay_kb(p):
+    return kb(
+        [btn("✅ Tasdiqlash", f"pa:ok:{p['id']}"), btn("❌ Rad etish", f"pa:no:{p['id']}")],
+        [btn("👤 Foydalanuvchi", f"au:view:{p['user_id']}")])
+
+
+def reject_kb(pid):
+    rows = [[btn(txt, f"pa:rs:{pid}:{k}")] for k, txt in REJECT_REASONS.items()]
+    rows.append([btn("✍️ Boshqa sabab yozish", f"pa:rs:{pid}:x")])
+    rows.append([btn("⬅️ Orqaga", f"pa:bk:{pid}")])
+    return kb(*rows)
+
+
+async def pay_caption(p, status_line=""):
+    u = await get_user(p["user_id"])
+    st = await pool.fetchrow(
+        "SELECT count(*) FILTER (WHERE status='approved') ok, "
+        "COALESCE(sum(amount) FILTER (WHERE status='approved'),0) total "
+        "FROM payments WHERE user_id=$1", p["user_id"])
+    name = esc(u["name"]) if u else "—"
+    uname = f"@{esc(u['username'])}" if u and u["username"] else ""
+    promo = f"\n🏷 Promokod: {esc(p['promo_code'])} (-{p['discount']}%)" if p["promo_code"] else ""
+    plan_label = PLANS.get(p["plan"], (0, p["plan"]))[1]
+    text = (
+        f"💳 <b>To'lov #{p['id']}</b>\n\n"
+        f"👤 {name} {uname}\n"
+        f"🆔 <code>{p['user_id']}</code>\n"
+        f"📦 Tarif: {plan_label} ({p['days']} kun)\n"
+        f"💰 Summa: <b>{money(p['amount'])} so'm</b>{promo}\n"
+        f"🕒 {p['created_at']:%d.%m.%Y %H:%M}\n"
+        f"📊 Oldingi to'lovlari: {st['ok']} ta / {money(st['total'])} so'm")
+    if status_line:
+        text += f"\n\n{status_line}"
+    return text
+
+
+async def send_payment_card(bot: Bot, chat_id, p):
+    """Chekni adminga yuboradi va xabar ID sini saqlaydi (keyin tugmalarni yangilash uchun)."""
+    status_line = ""
+    if p["status"] != "pending":
+        status_line = f"Holat: {STATUS_TXT[p['status']]}" + (
+            f"\nSabab: {esc(p['reason'])}" if p["reason"] else "")
+    text = await pay_caption(p, status_line)
+    markup = pay_kb(p) if p["status"] == "pending" else None
+    try:
+        if p["file_type"] == "photo":
+            msg = await bot.send_photo(chat_id, p["file_id"], caption=text, reply_markup=markup)
+        else:
+            msg = await bot.send_document(chat_id, p["file_id"], caption=text, reply_markup=markup)
+    except Exception as e:
+        log.warning("To'lov kartasini %s ga yuborib bo'lmadi: %s", chat_id, e)
+        return False
+    await pool.execute("INSERT INTO payment_msgs(payment_id,admin_id,message_id) VALUES($1,$2,$3)",
+                       p["id"], chat_id, msg.message_id)
+    return True
+
+
+async def finalize_payment(bot: Bot, pid, admin_id, approve, reason=None):
+    """To'lovni atomik tasdiqlaydi/rad etadi. Allaqachon ko'rilgan bo'lsa None qaytaradi."""
+    status = "approved" if approve else "rejected"
+    async with pool.acquire() as con:
+        async with con.transaction():
+            p = await con.fetchrow(
+                "UPDATE payments SET status=$2, admin_id=$3, reason=$4, decided_at=now() "
+                "WHERE id=$1 AND status='pending' RETURNING *", pid, status, admin_id, reason)
+            if not p:
+                return None
+            if approve:
+                await apply_vip(con, p["user_id"], p["days"], admin_id)
+                if p["promo_code"]:
+                    ins = await con.fetchval(
+                        "INSERT INTO promo_uses(code,user_id) VALUES($1,$2) "
+                        "ON CONFLICT DO NOTHING RETURNING TRUE", p["promo_code"], p["user_id"])
+                    if ins:
+                        await con.execute("UPDATE promos SET used=used+1 WHERE code=$1", p["promo_code"])
+    await log_admin(admin_id, "pay_" + status, p["user_id"], f"#{pid} {p['amount']}")
+
+    # --- foydalanuvchiga xabar
+    u = await get_user(p["user_id"])
+    if approve:
+        until = f"{u['vip_until']:%d.%m.%Y}" if u and u["vip_until"] else "—"
+        await safe_send(
+            bot, p["user_id"],
+            f"✅ <b>To'lovingiz tasdiqlandi!</b> (#{pid})\n\n"
+            f"👑 VIP PREMIUM faollashtirildi: <b>{until}</b> gacha.\n"
+            "Cheksiz layk, ⭐ super layk va boshqa imkoniyatlardan foydalaning!")
+    else:
+        await safe_send(
+            bot, p["user_id"],
+            f"❌ <b>To'lovingiz rad etildi</b> (#{pid})\n\n"
+            f"Sabab: {esc(reason or 'ko‘rsatilmagan')}\n\n"
+            f"Qayta urinish uchun «{B_VIP}» tugmasini bosing yoki admin bilan bog'laning: "
+            f"{esc(CFG['vip_contact'])}")
+
+    # --- barcha adminlardagi xabarlarni yangilash
+    who = f"admin <code>{admin_id}</code>"
+    line = (f"✅ <b>TASDIQLANDI</b> — {who}" if approve
+            else f"❌ <b>RAD ETILDI</b> — {who}\nSabab: {esc(reason or '—')}")
+    text = await pay_caption(p, line)
+    for r in await pool.fetch("SELECT admin_id, message_id FROM payment_msgs WHERE payment_id=$1", pid):
+        try:
+            await bot.edit_message_caption(chat_id=r["admin_id"], message_id=r["message_id"],
+                                           caption=text, reply_markup=kb())
+        except Exception:
+            pass
+
+    # --- referal: do'sti birinchi marta VIP olsa, taklif qiluvchiga VIP kunlar
+    if approve and u and u["referred_by"] and cfg_int("ref_vip_days") > 0:
+        prev = await pool.fetchval(
+            "SELECT count(*) FROM payments WHERE user_id=$1 AND status='approved' AND id<>$2",
+            p["user_id"], pid)
+        refr = await get_user(u["referred_by"])
+        if prev == 0 and refr:
+            days = cfg_int("ref_vip_days")
+            await grant_vip(bot, admin_id, refr["id"], days, notify=False)
+            await safe_send(bot, refr["id"],
+                            f"🎁 Siz taklif qilgan do'stingiz VIP sotib oldi!\n"
+                            f"Sizga <b>+{days} kunlik VIP</b> sovg'a qilindi 👑")
+    return p
+
+
+async def pending_list(bot: Bot, chat_id):
+    n = await pool.fetchval("SELECT count(*) FROM payments WHERE status='pending'")
+    if not n:
+        return await bot.send_message(chat_id, "✅ Kutilayotgan to'lovlar yo'q.")
+    rows = await pool.fetch("SELECT * FROM payments WHERE status='pending' ORDER BY id LIMIT 10")
+    await bot.send_message(chat_id, f"💳 Kutilayotgan to'lovlar: <b>{n}</b>"
+                                    + (" (dastlabki 10 tasi ko'rsatilmoqda)" if n > 10 else ""))
+    for p in rows:
+        await send_payment_card(bot, chat_id, p)
+
+
+@admin.message(Command("payments"))
+async def cmd_payments(m: Message, bot: Bot):
+    await pending_list(bot, m.chat.id)
+
+
+@admin.callback_query(F.data == "adm:pays")
+async def adm_pays(c: CallbackQuery, bot: Bot):
+    await c.answer()
+    await pending_list(bot, c.message.chat.id)
+
+
+@admin.callback_query(F.data.regexp(r"^pa:(ok|no|bk|rs|show):\d+(:\w+)?$"))
+async def pay_action(c: CallbackQuery, bot: Bot, state: FSMContext):
+    parts = c.data.split(":")
+    act, pid = parts[1], int(parts[2])
+    p = await pool.fetchrow("SELECT * FROM payments WHERE id=$1", pid)
+    if not p:
+        return await c.answer("To'lov topilmadi", show_alert=True)
+    if act == "show":
+        await c.answer()
+        return await send_payment_card(bot, c.message.chat.id, p)
+    if p["status"] != "pending":
+        return await c.answer(f"Bu to'lov allaqachon ko'rib chiqilgan: {STATUS_TXT[p['status']]}",
+                              show_alert=True)
+    if act == "ok":
+        await c.answer("Tasdiqlanmoqda...")
+        res = await finalize_payment(bot, pid, c.from_user.id, True)
+        if not res:
+            await c.message.answer("Bu to'lov allaqachon ko'rib chiqilgan.")
+    elif act == "no":
+        await c.answer()
+        await c.message.edit_reply_markup(reply_markup=reject_kb(pid))
+    elif act == "bk":
+        await c.answer()
+        await c.message.edit_reply_markup(reply_markup=pay_kb(p))
+    elif act == "rs":
+        code = parts[3] if len(parts) > 3 else ""
+        if code == "x":
+            await c.answer()
+            await state.set_state(AdmReject.reason)
+            await state.update_data(pid=pid)
+            return await c.message.answer(
+                f"✍️ #{pid} to'lovni rad etish sababini yozing (foydalanuvchiga yuboriladi):\n/cancel - bekor")
+        if code not in REJECT_REASONS:
+            return await c.answer()
+        await c.answer("Rad etilmoqda...")
+        res = await finalize_payment(bot, pid, c.from_user.id, False, REJECT_REASONS[code])
+        if not res:
+            await c.message.answer("Bu to'lov allaqachon ko'rib chiqilgan.")
+
+
+@admin.message(AdmReject.reason, F.text)
+async def pay_reject_text(m: Message, state: FSMContext, bot: Bot):
+    d = await state.get_data()
+    await state.clear()
+    res = await finalize_payment(bot, d["pid"], m.from_user.id, False, m.text.strip()[:200])
+    await m.answer("✅ Rad etildi, foydalanuvchiga xabar yuborildi." if res
+                   else "Bu to'lov allaqachon ko'rib chiqilgan.")
+
+
+# ---- daromad statistikasi
+@admin.callback_query(F.data == "adm:rev")
+async def adm_rev(c: CallbackQuery):
+    await c.answer()
+    r = await pool.fetchrow("""
+        SELECT COALESCE(sum(amount) FILTER (WHERE decided_at >= date_trunc('day', now())),0) today,
+               COALESCE(sum(amount) FILTER (WHERE decided_at >= now()-interval '7 days'),0) w,
+               COALESCE(sum(amount) FILTER (WHERE decided_at >= now()-interval '30 days'),0) mth,
+               COALESCE(sum(amount),0) total,
+               count(*) n,
+               count(DISTINCT user_id) payers
+        FROM payments WHERE status='approved'""")
+    cnt = await pool.fetchrow(
+        "SELECT count(*) FILTER (WHERE status='pending') pend, "
+        "count(*) FILTER (WHERE status='rejected') rej FROM payments")
+    by_plan = await pool.fetch(
+        "SELECT plan, count(*) n, COALESCE(sum(amount),0) s FROM payments "
+        "WHERE status='approved' GROUP BY plan ORDER BY s DESC")
+    days = await pool.fetch("""
+        SELECT d::date AS day, COALESCE(sum(p.amount),0) s
+        FROM generate_series(current_date-6, current_date, interval '1 day') d
+        LEFT JOIN payments p ON p.status='approved' AND p.decided_at::date = d::date
+        GROUP BY 1 ORDER BY 1""")
+    vips = await pool.fetchval("SELECT count(*) FROM users WHERE vip_until>now()")
+    mx = max([x["s"] for x in days] + [1])
+    chart = "\n".join(f"{x['day']:%d.%m} {'█' * round(x['s'] / mx * 10) or '▏'} {money(x['s'])}" for x in days)
+    plans = "\n".join(f" • {PLANS.get(x['plan'], ('', x['plan']))[1]}: {x['n']} ta — {money(x['s'])} so'm"
+                      for x in by_plan) or " —"
+    avg = money(r["total"] // r["n"]) if r["n"] else 0
+    await c.message.answer(
+        "💰 <b>Daromad</b>\n\n"
+        f"📅 Bugun: <b>{money(r['today'])}</b> so'm\n"
+        f"🗓 7 kun: <b>{money(r['w'])}</b> so'm\n"
+        f"📆 30 kun: <b>{money(r['mth'])}</b> so'm\n"
+        f"🏦 Jami: <b>{money(r['total'])}</b> so'm\n\n"
+        f"✅ Tasdiqlangan: {r['n']} ta ({r['payers']} xaridor)\n"
+        f"🧾 O'rtacha chek: {avg} so'm\n"
+        f"⏳ Kutilmoqda: {cnt['pend']}   ❌ Rad etilgan: {cnt['rej']}\n"
+        f"👑 Hozir faol VIP: {vips}\n\n"
+        f"📦 <b>Tariflar bo'yicha</b>\n{plans}\n\n"
+        f"📈 <b>So'nggi 7 kun</b>\n<code>{chart}</code>",
+        reply_markup=kb([btn("💳 Kutilayotgan to'lovlar", "adm:pays")],
+                        [btn("📥 To'lovlar CSV", "adm:pcsv")]))
+
+
+@admin.callback_query(F.data == "adm:pcsv")
+async def adm_pcsv(c: CallbackQuery):
+    await c.answer()
+    rows = await pool.fetch("SELECT * FROM payments ORDER BY id")
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "user_id", "plan", "days", "amount", "promo", "discount", "status",
+                "admin_id", "reason", "created_at", "decided_at"])
+    for p in rows:
+        w.writerow([p["id"], p["user_id"], p["plan"], p["days"], p["amount"], p["promo_code"],
+                    p["discount"], p["status"], p["admin_id"], p["reason"], p["created_at"],
+                    p["decided_at"]])
+    await c.message.answer_document(
+        BufferedInputFile(buf.getvalue().encode("utf-8-sig"),
+                          filename=f"payments_{datetime.now():%Y%m%d}.csv"),
+        caption=f"💳 Jami to'lovlar: {len(rows)}")
+
+
+# ---- promokodlar
+@admin.message(Command("promo"))
+async def cmd_promo(m: Message, command: CommandObject):
+    a = (command.args or "").split()
+    if (len(a) < 2 or not a[1].isdigit() or not (1 <= int(a[1]) <= 99)
+            or not re.fullmatch(r"[A-Za-z0-9_]{3,20}", a[0])):
+        return await m.answer(
+            "Format: <code>/promo KOD FOIZ [LIMIT] [KUN]</code>\n"
+            "Masalan: <code>/promo YANGI20 20 100 30</code>\n"
+            "(20% chegirma, 100 kishi, 30 kun amal qiladi; LIMIT/KUN yozilmasa — cheksiz)")
+    code, pct = a[0].upper(), int(a[1])
+    mx = int(a[2]) if len(a) > 2 and a[2].isdigit() else 0
+    days = int(a[3]) if len(a) > 3 and a[3].isdigit() else 0
+    await pool.execute(
+        """
+        INSERT INTO promos(code,percent,max_uses,expires_at)
+        VALUES($1,$2,$3,CASE WHEN $4::int>0 THEN now()+$4::int*interval '1 day' END)
+        ON CONFLICT (code) DO UPDATE SET percent=$2, max_uses=$3, active=TRUE,
+            expires_at=CASE WHEN $4::int>0 THEN now()+$4::int*interval '1 day' END
+        """, code, pct, mx, days)
+    await log_admin(m.from_user.id, "promo", None, f"{code} -{pct}%")
+    await m.answer(f"✅ Promokod: <code>{code}</code> — -{pct}%"
+                   f"{f', limit {mx}' if mx else ''}{f', {days} kun' if days else ''}")
+
+
+@admin.message(Command("delpromo"))
+async def cmd_delpromo(m: Message, command: CommandObject):
+    code = (command.args or "").strip().upper()
+    if not code:
+        return await m.answer("Format: <code>/delpromo KOD</code>")
+    res = await pool.execute("DELETE FROM promos WHERE code=$1", code)
+    await log_admin(m.from_user.id, "delpromo", None, code)
+    await m.answer("✅ O'chirildi" if res.endswith("1") else "Bunday promokod yo'q")
+
+
+@admin.callback_query(F.data == "adm:promos")
+async def adm_promos(c: CallbackQuery):
+    await c.answer()
+    rows = await pool.fetch("SELECT * FROM promos ORDER BY created_at DESC LIMIT 20")
+    now = datetime.now(timezone.utc)
+    lines = []
+    for p in rows:
+        exp = ""
+        if p["expires_at"]:
+            exp = f" · {p['expires_at']:%d.%m.%Y} gacha" + (" (tugagan)" if p["expires_at"] < now else "")
+        lim = f"{p['used']}/{p['max_uses']}" if p["max_uses"] else f"{p['used']}/∞"
+        lines.append(f"<code>{p['code']}</code> · -{p['percent']}% · {lim}{exp}")
+    await c.message.answer(
+        "🏷 <b>Promokodlar</b>\n\n" + ("\n".join(lines) if lines else "Hozircha yo'q.") +
+        "\n\nYaratish: <code>/promo KOD FOIZ [LIMIT] [KUN]</code>\n"
+        "O'chirish: <code>/delpromo KOD</code>")
+
+
 # ---- bot sozlamalari
 CFG_PROMPTS = {
     "daily_likes": "Kunlik bepul layk sonini yozing (masalan 30):",
-    "vip_contact": "VIP uchun akkauntni yozing (masalan @admin):",
+    "vip_contact": "Yordam/VIP uchun akkauntni yozing (masalan @admin):",
     "channel": "Majburiy kanalni yozing (@kanal). O'chirish uchun <code>-</code> yozing:",
     "ref_bonus": "Do'st taklif qilgani uchun bonus layk sonini yozing:",
+    "ref_vip_days": "Do'sti VIP sotib olganda taklif qiluvchiga beriladigan VIP kunlar (0 = o'chirish):",
+    "super_daily": "VIP uchun kunlik super layk limitini yozing:",
     "welcome": "Salomlashuv matnini yozing:",
     "price_week": "1 haftalik VIP narxini yozing (so'mda, masalan 35000):",
     "price_month": "1 oylik VIP narxini yozing (so'mda, masalan 65000):",
+    "price_quarter": "3 oylik VIP narxini yozing (so'mda, masalan 170000):",
+    "card_number": "To'lov uchun karta raqamini yozing (masalan 8600 1234 5678 9012):",
+    "card_owner": "Karta egasining ism-familiyasini yozing:",
 }
+NUMERIC_CFG = {"daily_likes", "ref_bonus", "ref_vip_days", "super_daily",
+               "price_week", "price_month", "price_quarter"}
 
 
 def cfg_kb():
     maint = CFG["maintenance"] == "1"
+    card = CFG["card_number"] or "—"
     return kb(
+        [btn(f"💳 Karta: {card}", "cfg:card_number")],
+        [btn(f"👤 Karta egasi: {CFG['card_owner'] or '—'}", "cfg:card_owner")],
         [btn(f"💰 1 hafta: {money(CFG['price_week'])}", "cfg:price_week")],
         [btn(f"💰 1 oy: {money(CFG['price_month'])}", "cfg:price_month")],
-        [btn(f"🔢 Kunlik layk: {CFG['daily_likes']}", "cfg:daily_likes")],
-        [btn(f"👑 VIP kontakt: {CFG['vip_contact']}", "cfg:vip_contact")],
+        [btn(f"💰 3 oy: {money(CFG['price_quarter'])}", "cfg:price_quarter")],
+        [btn(f"🔢 Kunlik layk: {CFG['daily_likes']}", "cfg:daily_likes"),
+         btn(f"⭐ Super layk: {CFG['super_daily']}", "cfg:super_daily")],
+        [btn(f"👑 Kontakt: {CFG['vip_contact']}", "cfg:vip_contact")],
         [btn(f"📢 Kanal: {CFG['channel'] or '—'}", "cfg:channel")],
-        [btn(f"🎁 Referal bonus: {CFG['ref_bonus']}", "cfg:ref_bonus")],
+        [btn(f"🎁 Referal layk: {CFG['ref_bonus']}", "cfg:ref_bonus"),
+         btn(f"🎁 Referal VIP: {CFG['ref_vip_days']} kun", "cfg:ref_vip_days")],
         [btn("👋 Salomlashuv matni", "cfg:welcome")],
         [btn("🛠 Texnik rejim: " + ("YOQILGAN" if maint else "o'chiq"), "cfg:maint")],
     )
@@ -1467,7 +2152,7 @@ async def cfg_open(c: CallbackQuery, state: FSMContext):
 async def cfg_set(m: Message, state: FSMContext):
     key = (await state.get_data())["key"]
     v = m.text.strip()
-    if key in ("daily_likes", "ref_bonus", "price_week", "price_month"):
+    if key in NUMERIC_CFG:
         if not v.isdigit():
             return await m.answer("Raqam yozing.")
     elif key == "channel":
@@ -1475,6 +2160,9 @@ async def cfg_set(m: Message, state: FSMContext):
             v = ""
         elif not v.startswith("@"):
             return await m.answer("Kanal @ bilan boshlansin.")
+    elif key == "card_number":
+        if len(re.sub(r"\D", "", v)) < 8:
+            return await m.answer("Karta raqami noto'g'ri. Raqamlarni yozing.")
     await set_cfg(key, v)
     await log_admin(m.from_user.id, "setting", None, f"{key}={v[:50]}")
     await state.clear()
@@ -1527,19 +2215,42 @@ async def safe_send(bot: Bot, uid, text):
 
 
 async def maintenance_loop(bot: Bot):
-    """Har soatda: VIP tugashi haqida ogohlantirish, layk eslatma, eski ma'lumotlarni tozalash."""
+    """Har 10 daqiqada: VIP ogohlantirishlari, kutilayotgan to'lovlar eslatmasi, layk eslatma, tozalash."""
     while True:
-        await asyncio.sleep(3600)
+        await asyncio.sleep(600)
         try:
+            # VIP tugashiga 1 kundan kam qoldi
             for r in await pool.fetch(
                     "SELECT id, vip_until FROM users WHERE vip_until>now() "
                     "AND vip_until<now()+interval '1 day' AND NOT vip_warned AND NOT blocked_bot"):
                 await pool.execute("UPDATE users SET vip_warned=TRUE WHERE id=$1", r["id"])
                 await safe_send(bot, r["id"],
-                                f"⏰ VIP obunangiz {r['vip_until']:%d.%m.%Y %H:%M} da tugaydi. "
-                                f"Uzaytirish: {CFG['vip_contact']}")
+                                f"⏰ VIP obunangiz {r['vip_until']:%d.%m.%Y %H:%M} da tugaydi.\n"
+                                f"Uzaytirish: «{B_VIP}» tugmasi.")
                 await asyncio.sleep(0.05)
 
+            # VIP tugadi
+            for r in await pool.fetch(
+                    "SELECT id FROM users WHERE vip_until IS NOT NULL AND vip_until<now() "
+                    "AND vip_until>now()-interval '3 days' AND NOT vip_expired_sent AND NOT blocked_bot"):
+                await pool.execute("UPDATE users SET vip_expired_sent=TRUE WHERE id=$1", r["id"])
+                await safe_send(bot, r["id"],
+                                "😔 VIP obunangiz tugadi. Cheksiz layk va boshqa imkoniyatlarni "
+                                f"qaytarish uchun «{B_VIP}» tugmasini bosing.")
+                await asyncio.sleep(0.05)
+
+            # 15 daqiqadan beri kutayotgan to'lovlar haqida adminlarga eslatma
+            pend = await pool.fetch(
+                "SELECT id FROM payments WHERE status='pending' AND NOT admin_reminded "
+                "AND created_at<now()-interval '15 minutes'")
+            if pend:
+                await pool.execute("UPDATE payments SET admin_reminded=TRUE WHERE id=ANY($1::int[])",
+                                   [x["id"] for x in pend])
+                for a in ADMIN_IDS:
+                    await safe_send(bot, a, f"⏰ {len(pend)} ta to'lov 15 daqiqadan beri kutmoqda. "
+                                            "Ko'rish: /payments")
+
+            # layk eslatmasi
             for r in await pool.fetch(
                     """
                     SELECT u.id, count(*) n FROM users u
@@ -1556,6 +2267,7 @@ async def maintenance_loop(bot: Bot):
                 await asyncio.sleep(0.05)
 
             await pool.execute("DELETE FROM daily_likes WHERE day < CURRENT_DATE - 7")
+            await pool.execute("DELETE FROM daily_super WHERE day < CURRENT_DATE - 7")
         except Exception:
             log.exception("maintenance_loop xatosi")
 
@@ -1622,6 +2334,8 @@ async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if not TOKEN or not DATABASE_URL:
         raise SystemExit("BOT_TOKEN va DATABASE_URL o'rnatilmagan!")
+    if not ADMIN_IDS:
+        log.warning("ADMIN_IDS bo'sh! To'lov cheklari hech kimga bormaydi.")
 
     pool = await create_db_pool()
     for stmt in SCHEMA_STATEMENTS:
