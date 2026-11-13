@@ -1,5 +1,5 @@
 """
-AdMatch Bot PRO v2 - Telegram tanishuv boti
+AdMatch Bot PRO v3 - Telegram tanishuv boti
 Stack: aiogram 3 + PostgreSQL (asyncpg) + aiohttp (Render Web Service uchun)
 
 Muhit o'zgaruvchilari (Render -> Environment):
@@ -9,7 +9,7 @@ Muhit o'zgaruvchilari (Render -> Environment):
   CHANNEL       - majburiy obuna kanali (@kanal), ixtiyoriy
   DAILY_LIKES   - bepul foydalanuvchi uchun kunlik layk (standart 30)
   VIP_CONTACT   - VIP uchun yoziladigan akkaunt (@admin)
-Eslatma: CHANNEL, DAILY_LIKES, VIP_CONTACT keyin admin paneldan ham o'zgartiriladi.
+Eslatma: CHANNEL, DAILY_LIKES, VIP_CONTACT, narxlar keyin admin paneldan ham o'zgartiriladi.
 
 Bot jadvallarini bazadagi alohida "admatch" schema ichida yaratadi,
 shuning uchun eski jadvallar bilan aralashib ketmaydi.
@@ -23,6 +23,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 import asyncpg
 from aiohttp import ClientSession, web
@@ -45,7 +46,7 @@ from aiogram.types import (
 # ====================== SOZLAMALAR ======================
 TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
-ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x.isdigit()}
+ADMIN_IDS = {int(x) for x in re.findall(r"\d+", os.getenv("ADMIN_IDS", ""))}
 PORT = int(os.getenv("PORT", "10000"))
 DB_SCHEMA = "admatch"
 
@@ -56,6 +57,8 @@ DEFAULTS = {
     "ref_bonus": "10",
     "maintenance": "0",
     "welcome": "Bu yerda yangi insonlar bilan tanishishingiz mumkin.",
+    "price_week": "35000",
+    "price_month": "65000",
 }
 CFG = dict(DEFAULTS)  # DB dagi qiymatlar bilan almashtiriladi
 
@@ -73,6 +76,13 @@ def cfg_int(key):
         return int(CFG[key])
     except (ValueError, KeyError):
         return int(DEFAULTS[key])
+
+
+def money(v):
+    try:
+        return f"{int(v):,}".replace(",", " ")
+    except (ValueError, TypeError):
+        return str(v)
 
 
 SCHEMA = """
@@ -280,7 +290,7 @@ def main_menu(uid):
         [KeyboardButton(text=B_SET), KeyboardButton(text=B_VIP)],
         [KeyboardButton(text=B_INV)],
     ]
-    if uid in ADMIN_IDS:
+    if uid in ADMIN_IDS:  # faqat adminlarga ko'rinadi
         rows.append([KeyboardButton(text=B_ADMIN)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
@@ -299,6 +309,7 @@ def skip_kb():
 def react_kb(target_id, src):
     return kb(
         [btn("❤️", f"lk:{target_id}:{src}"), btn("👎", f"ds:{target_id}:{src}")],
+        [btn("💬 Lichkasiga yozish", f"dm:{target_id}")],
         [btn("🚩 Shikoyat", f"rp:{target_id}:{src}"), btn("⬅️ Orqaga", "back")],
     )
 
@@ -418,6 +429,10 @@ class SetAge(StatesGroup):
     rng = State()
 
 
+class VipSearch(StatesGroup):
+    q = State()
+
+
 def validate(field, v):
     v = v.strip()
     if field in ("name", "city") and 2 <= len(v) <= 30:
@@ -449,7 +464,10 @@ async def start(m: Message, state: FSMContext, bot: Bot, command: CommandObject)
             return await m.answer("📢 Avval kanalga obuna bo'ling:", reply_markup=sub_kb())
         await m.answer("Menyudan tanlang 👇", reply_markup=main_menu(m.from_user.id))
     else:
-        await begin_reg(m, state)
+        if m.from_user.id in ADMIN_IDS:
+            await m.answer("🛠 Siz adminsiz: /admin buyrug'i yoki menyudagi tugma orqali panelga kiring.",
+                           reply_markup=main_menu(m.from_user.id))
+        await begin_reg(m, state, keep_kb=m.from_user.id in ADMIN_IDS)
         if ref and ref != m.from_user.id:
             await state.update_data(ref=ref)
 
@@ -467,8 +485,16 @@ async def help_cmd(m: Message):
         f"Savollar bo'lsa: {esc(CFG['vip_contact'])}")
 
 
-async def begin_reg(m: Message, state: FSMContext):
-    await m.answer("Anketa to'ldiramiz.\n\n✏️ Ismingiz?", reply_markup=ReplyKeyboardRemove())
+@router.message(Command("myid"))
+async def myid(m: Message):
+    await m.answer(
+        f"ID: <code>{m.from_user.id}</code>\n"
+        f"Admin: {'ha ✅' if m.from_user.id in ADMIN_IDS else 'yoq ❌'}")
+
+
+async def begin_reg(m: Message, state: FSMContext, keep_kb=False):
+    await m.answer("Anketa to'ldiramiz.\n\n✏️ Ismingiz?",
+                   reply_markup=None if keep_kb else ReplyKeyboardRemove())
     await state.set_state(Reg.name)
 
 
@@ -816,7 +842,7 @@ async def handle_like(bot: Bot, me, tid):
             pass
 
 
-@router.callback_query(F.data.regexp(r"^(lk|ds|rp):\d+:[snl]$"))
+@router.callback_query(F.data.regexp(r"^(lk|ds|rp):\d+:[snlv]$"))
 async def react(c: CallbackQuery, bot: Bot):
     action, tid, src = c.data.split(":")
     tid, uid = int(tid), c.from_user.id
@@ -878,23 +904,100 @@ async def check_sub(c: CallbackQuery, bot: Bot):
         await c.answer("Hali obuna bo'lmadingiz ❌", show_alert=True)
 
 
-# ====================== VIP / REFERAL ======================
+# ====================== VIP / LICHKAGA YOZISH / REFERAL ======================
+def buy_rows(uid):
+    ch = CFG["vip_contact"].lstrip("@")
+
+    def link(label):
+        text = quote(f"Salom! VIP {label} olmoqchiman. ID: {uid}")
+        return f"https://t.me/{ch}?text={text}"
+
+    return [
+        [btn(f"⏳ 1 hafta — {money(CFG['price_week'])} so'm", url=link("1 haftalik"))],
+        [btn(f"📅 1 oy — {money(CFG['price_month'])} so'm", url=link("1 oylik"))],
+    ]
+
+
+def vip_offer_text():
+    return ("👑 <b>Bu funksiya faqat VIP PREMIUM uchun</b>\n\n"
+            "VIP bilan istalgan odamning lichkasiga yozasiz, layk cheksiz, "
+            "anketangiz birinchi ko'rsatiladi.\n\n"
+            f"⏳ 1 hafta — <b>{money(CFG['price_week'])} so'm</b>\n"
+            f"📅 1 oy — <b>{money(CFG['price_month'])} so'm</b>")
+
+
 @router.message(F.text == B_VIP)
 async def vip(m: Message, bot: Bot):
     me = await gate(bot, m.from_user.id, m.chat.id)
     if not me:
         return
-    status = (f"✅ Faol: {me['vip_until']:%d.%m.%Y} gacha" if is_vip(me) else "❌ Faol emas")
+    rows = []
+    if is_vip(me):
+        status = f"✅ Faol: {me['vip_until']:%d.%m.%Y} gacha"
+        rows.append([btn("🔎 Odam qidirish va lichkasiga yozish", "vs")])
+    else:
+        status = "❌ Faol emas"
+    rows += buy_rows(m.from_user.id)
     await m.answer(
         "👑 <b>VIP PREMIUM</b>\n\n"
-        "✅ Cheklovsiz layk\n"
+        "✅ Istalgan odamning lichkasiga yozish\n"
+        "✅ Cheksiz layk\n"
         "✅ Anketangiz qidiruvda birinchi ko'rsatiladi\n"
         "✅ Ismingiz yonida 👑 belgisi\n\n"
-        f"Bepul rejada kuniga {cfg_int('daily_likes')} ta layk.\n"
+        f"⏳ 1 hafta — <b>{money(CFG['price_week'])} so'm</b>\n"
+        f"📅 1 oy — <b>{money(CFG['price_month'])} so'm</b>\n\n"
         f"Qolgan layklar: <b>{await likes_left(me)}</b>\n"
         f"Holat: {status}\n\n"
-        f"VIP olish uchun {esc(CFG['vip_contact'])} ga yozing va ID raqamingizni yuboring:\n"
-        f"<code>{m.from_user.id}</code>")
+        "Tugmani bosing, admin bilan chat ochiladi. To'lovdan so'ng VIP yoqiladi.",
+        reply_markup=kb(*rows))
+
+
+@router.callback_query(F.data.regexp(r"^dm:\d+$"))
+async def dm_open(c: CallbackQuery):
+    me = await get_user(c.from_user.id)
+    if not me:
+        return await c.answer("Avval /start bosing", show_alert=True)
+    await c.answer()
+    if not is_vip(me):
+        return await c.message.answer(vip_offer_text(), reply_markup=kb(*buy_rows(me["id"])))
+    t = await get_user(int(c.data[3:]))
+    if not t or t["is_banned"]:
+        return await c.message.answer("Foydalanuvchi topilmadi.")
+    url = f"https://t.me/{t['username']}" if t["username"] else f"tg://user?id={t['id']}"
+    await c.message.answer(f"💬 <b>{esc(t['name'])}</b> lichkasiga o'tish:",
+                           reply_markup=kb([btn("💬 Lichkaga o'tish", url=url)]))
+
+
+@router.callback_query(F.data == "vs")
+async def vs_start(c: CallbackQuery, state: FSMContext):
+    me = await get_user(c.from_user.id)
+    await c.answer()
+    if not me or not is_vip(me):
+        return await c.message.answer(vip_offer_text(), reply_markup=kb(*buy_rows(c.from_user.id)))
+    await state.set_state(VipSearch.q)
+    await c.message.answer("🔎 Ism, @username yoki shahar yozing:\n/cancel - bekor")
+
+
+@router.message(VipSearch.q, F.text)
+async def vs_find(m: Message, state: FSMContext, bot: Bot):
+    me = await get_user(m.from_user.id)
+    await state.clear()
+    if not me or not is_vip(me):
+        return await m.answer(vip_offer_text(), reply_markup=kb(*buy_rows(m.from_user.id)))
+    q = m.text.strip().lstrip("@")
+    rows = await pool.fetch(
+        "SELECT * FROM users WHERE id<>$1 AND is_active AND NOT is_banned "
+        "AND (lower(username)=lower($2) OR name ILIKE $3 OR city ILIKE $3) "
+        "ORDER BY (lower(city)=lower($4)) DESC, random() LIMIT 10",
+        me["id"], q, f"%{q}%", me["city"])
+    if not rows:
+        return await m.answer("❌ Hech kim topilmadi.")
+    for u in rows:
+        try:
+            await bot.send_photo(m.chat.id, u["photo"], caption=caption(u),
+                                 reply_markup=react_kb(u["id"], "v"))
+        except TelegramBadRequest:
+            pass
 
 
 @router.message(F.text == B_INV)
@@ -1317,12 +1420,16 @@ CFG_PROMPTS = {
     "channel": "Majburiy kanalni yozing (@kanal). O'chirish uchun <code>-</code> yozing:",
     "ref_bonus": "Do'st taklif qilgani uchun bonus layk sonini yozing:",
     "welcome": "Salomlashuv matnini yozing:",
+    "price_week": "1 haftalik VIP narxini yozing (so'mda, masalan 35000):",
+    "price_month": "1 oylik VIP narxini yozing (so'mda, masalan 65000):",
 }
 
 
 def cfg_kb():
     maint = CFG["maintenance"] == "1"
     return kb(
+        [btn(f"💰 1 hafta: {money(CFG['price_week'])}", "cfg:price_week")],
+        [btn(f"💰 1 oy: {money(CFG['price_month'])}", "cfg:price_month")],
         [btn(f"🔢 Kunlik layk: {CFG['daily_likes']}", "cfg:daily_likes")],
         [btn(f"👑 VIP kontakt: {CFG['vip_contact']}", "cfg:vip_contact")],
         [btn(f"📢 Kanal: {CFG['channel'] or '—'}", "cfg:channel")],
@@ -1359,7 +1466,7 @@ async def cfg_open(c: CallbackQuery, state: FSMContext):
 async def cfg_set(m: Message, state: FSMContext):
     key = (await state.get_data())["key"]
     v = m.text.strip()
-    if key in ("daily_likes", "ref_bonus"):
+    if key in ("daily_likes", "ref_bonus", "price_week", "price_month"):
         if not v.isdigit():
             return await m.answer("Raqam yozing.")
     elif key == "channel":
@@ -1518,6 +1625,7 @@ async def main():
         BotCommand(command="start", description="Botni boshlash"),
         BotCommand(command="cancel", description="Amalni bekor qilish"),
         BotCommand(command="help", description="Yordam"),
+        BotCommand(command="myid", description="Mening ID raqamim"),
     ])
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
