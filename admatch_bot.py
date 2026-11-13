@@ -1781,3 +1781,128 @@ async def adm_rep_action(c: CallbackQuery, bot: Bot):
     except Exception:
         pass
     await show_report(bot, c.message.chat.id)
+
+# ====================== ISHGA TUSHIRISH ======================
+async def init_database() -> None:
+    """Jadvallarni yaratadi va standart sozlamalarni bazaga yozadi."""
+    global pool
+
+    if not DATABASE_URL:
+        raise RuntimeError("Render Environment'da DATABASE_URL kiritilmagan.")
+
+    # Render Postgres URL'i asyncpg bilan ishlashi uchun normalizatsiya.
+    dsn = DATABASE_URL.strip()
+    if dsn.startswith("postgres://"):
+        dsn = "postgresql://" + dsn[len("postgres://"):]
+
+    pool = await asyncpg.create_pool(
+        dsn=dsn,
+        min_size=1,
+        max_size=5,
+        command_timeout=60,
+        timeout=30,
+    )
+
+    async with pool.acquire() as conn:
+        for statement in SCHEMA_STATEMENTS:
+            await conn.execute(statement)
+        for key, value in DEFAULTS.items():
+            await conn.execute(
+                "INSERT INTO settings(key, value) VALUES($1, $2) "
+                "ON CONFLICT(key) DO NOTHING",
+                key,
+                str(value),
+            )
+
+    await load_cfg()
+    log.info("PostgreSQL bazasi tayyor.")
+
+
+async def health_check(_request: web.Request) -> web.Response:
+    """Render health check endpoint."""
+    if pool is None:
+        return web.json_response({"ok": False, "database": "not_ready"}, status=503)
+    try:
+        await pool.fetchval("SELECT 1")
+        return web.json_response({"ok": True, "service": "AdMatch Bot PRO"})
+    except Exception:
+        log.exception("Health check: database tekshiruvida xato")
+        return web.json_response({"ok": False, "database": "error"}, status=503)
+
+
+async def main() -> None:
+    global BOT_USERNAME
+
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
+
+    if not TOKEN:
+        raise RuntimeError("Render Environment'da BOT_TOKEN kiritilmagan.")
+    if not DATABASE_URL:
+        raise RuntimeError("Render Environment'da DATABASE_URL kiritilmagan.")
+    if not ADMIN_IDS:
+        log.warning("ADMIN_IDS kiritilmagan: admin funksiyalari ishlamaydi.")
+
+    await init_database()
+
+    bot = Bot(
+        token=TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.update.middleware(Guard())
+    dp.include_router(router)
+    dp.include_router(admin)
+
+    # Bot username'i referal havolalarini yaratish uchun kerak.
+    me = await bot.get_me()
+    BOT_USERNAME = me.username or ""
+    log.info("Bot ulandi: @%s", BOT_USERNAME or "username yo'q")
+
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Botni boshlash"),
+        BotCommand(command="help", description="Yordam"),
+        BotCommand(command="cancel", description="Amalni bekor qilish"),
+        BotCommand(command="admin", description="Admin panel"),
+    ])
+
+    # Render Web Service PORT talab qiladi. Bu endpoint servisni sog'lom
+    # deb belgilash uchun; Telegram yangilanishlari polling orqali olinadi.
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    app.router.add_get("/health", health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="0.0.0.0", port=PORT)
+    await site.start()
+    log.info("Health server 0.0.0.0:%s da ishga tushdi.", PORT)
+
+    try:
+        # Oldingi webhook bo'lsa olib tashlaydi va pollingni boshlaydi.
+        await bot.delete_webhook(drop_pending_updates=False)
+        log.info("Telegram polling boshlandi.")
+        await dp.start_polling(
+            bot,
+            allowed_updates=dp.resolve_used_update_types(),
+            close_bot_session=False,
+        )
+    finally:
+        await runner.cleanup()
+        await bot.session.close()
+        if pool is not None:
+            await pool.close()
+            pool = None
+        log.info("Bot to'xtatildi.")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    except Exception:
+        logging.basicConfig(level=logging.INFO)
+        logging.exception("AdMatch Bot PRO ishga tushmadi.")
+        raise
