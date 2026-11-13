@@ -142,10 +142,7 @@ SCHEMA_STATEMENTS = [
         max_age INT DEFAULT 70,
         created_at TIMESTAMPTZ DEFAULT now(),
         last_seen TIMESTAMPTZ DEFAULT now()
-    )""",await conn.execute("""
-    ALTER TABLE payments
-    ADD COLUMN IF NOT EXISTS file_uid TEXT
-""")
+    )""",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS looking_for TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS bonus_likes INT DEFAULT 0",
@@ -209,6 +206,7 @@ SCHEMA_STATEMENTS = [
     # Eski PostgreSQL bazalarini yangilash: mavjud payments jadvaliga kerakli ustunlarni qo'shadi.
     "ALTER TABLE payments ADD COLUMN IF NOT EXISTS promo_code TEXT",
     "ALTER TABLE payments ADD COLUMN IF NOT EXISTS discount INT DEFAULT 0",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS file_id TEXT",
     "ALTER TABLE payments ADD COLUMN IF NOT EXISTS file_uid TEXT",
     "ALTER TABLE payments ADD COLUMN IF NOT EXISTS file_type TEXT",
     "ALTER TABLE payments ADD COLUMN IF NOT EXISTS admin_id BIGINT",
