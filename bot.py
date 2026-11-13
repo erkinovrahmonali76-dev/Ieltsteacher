@@ -138,7 +138,7 @@ SCHEMA_STATEMENTS = [
         is_active BOOLEAN DEFAULT TRUE,
         is_banned BOOLEAN DEFAULT FALSE,
         vip_until TIMESTAMPTZ,
-        min_age INT DEFAULT 16,
+        min_age INT DEFAULT 18,
         max_age INT DEFAULT 70,
         created_at TIMESTAMPTZ DEFAULT now(),
         last_seen TIMESTAMPTZ DEFAULT now()
@@ -319,7 +319,7 @@ async def next_profile(me):
         """
         SELECT x.* FROM users x
         WHERE ($1='all' OR x.gender=$1) AND x.id<>$2 AND x.is_active AND NOT x.is_banned
-          AND x.age BETWEEN $3 AND $4
+          AND x.age >= 18 AND x.age BETWEEN GREATEST($3,18) AND $4
           AND COALESCE(x.looking_for, CASE WHEN x.gender='Yigit' THEN 'Qiz' ELSE 'Yigit' END)
               IN ('all', $6)
           AND NOT EXISTS (SELECT 1 FROM reactions r WHERE r.from_id=$2 AND r.to_id=x.id)
@@ -527,7 +527,15 @@ class Guard(BaseMiddleware):
             return
 
         row = await pool.fetchrow(
-            "UPDATE users SET last_seen=now(), blocked_bot=FALSE WHERE id=$1 RETURNING is_banned", user.id)
+            "UPDATE users SET last_seen=now(), blocked_bot=FALSE WHERE id=$1 "
+            "RETURNING is_banned, age", user.id)
+        if row and row["age"] is not None and row["age"] < 18 and not is_adm:
+            txt = "🔞 Bu bot faqat 18 yosh va undan kattalar uchun."
+            if isinstance(event, CallbackQuery):
+                await event.answer(txt, show_alert=True)
+            else:
+                await event.answer(txt)
+            return
         if row and row["is_banned"] and not is_adm:
             if isinstance(event, CallbackQuery):
                 await event.answer("🚫 Siz bloklangansiz.", show_alert=True)
@@ -586,7 +594,7 @@ def validate(field, v):
     v = v.strip()
     if field in ("name", "city") and 2 <= len(v) <= 30:
         return v
-    if field == "age" and v.isdigit() and 16 <= int(v) <= 70:
+    if field == "age" and v.isdigit() and 18 <= int(v) <= 70:
         return int(v)
     if field == "interests" and 2 <= len(v) <= 100:
         return v
@@ -676,7 +684,7 @@ async def reg_gender(m: Message, state: FSMContext):
 async def reg_age(m: Message, state: FSMContext):
     v = validate("age", m.text)
     if v is None:
-        return await m.answer("Yoshni raqam bilan yozing (16-70).")
+        return await m.answer("Yoshni raqam bilan yozing (18-70).")
     await state.update_data(age=v)
     await m.answer("Qaysi shahardansiz?")
     await state.set_state(Reg.city)
@@ -854,8 +862,8 @@ async def st_age(c: CallbackQuery, state: FSMContext):
 @router.message(SetAge.rng, F.text)
 async def st_age_set(m: Message, state: FSMContext):
     r = re.match(r"^(\d{2})\s*[-–]\s*(\d{2})$", m.text.strip())
-    if not r or not (16 <= int(r[1]) <= int(r[2]) <= 70):
-        return await m.answer("Format noto'g'ri. Masalan: <code>18-30</code> (16 dan 70 gacha).")
+    if not r or not (18 <= int(r[1]) <= int(r[2]) <= 70):
+        return await m.answer("Format noto'g'ri. Masalan: <code>18-30</code> (18 dan 70 gacha).")
     await pool.execute("UPDATE users SET min_age=$2, max_age=$3 WHERE id=$1",
                        m.from_user.id, int(r[1]), int(r[2]))
     await state.clear()
@@ -1315,7 +1323,7 @@ async def vs_find(m: Message, state: FSMContext, bot: Bot):
         return await m.answer(vip_offer_text(), reply_markup=kb(*await buy_rows(m.from_user.id)))
     q = m.text.strip().lstrip("@")
     rows = await pool.fetch(
-        "SELECT * FROM users WHERE id<>$1 AND is_active AND NOT is_banned "
+        "SELECT * FROM users WHERE id<>$1 AND is_active AND NOT is_banned AND age>=18 "
         "AND (lower(username)=lower($2) OR name ILIKE $3 OR city ILIKE $3) "
         "ORDER BY (lower(city)=lower($4)) DESC, random() LIMIT 10",
         me["id"], q, f"%{q}%", me["city"])
@@ -1782,6 +1790,355 @@ async def adm_rep_action(c: CallbackQuery, bot: Bot):
         pass
     await show_report(bot, c.message.chat.id)
 
+
+
+# ====================== TO'LOV ADMINI VA SOZLAMALAR ======================
+CFG_LABELS = {
+    "card_number": "💳 Karta raqami",
+    "card_owner": "👤 Karta egasi",
+    "price_week": "⏳ 1 haftalik narx",
+    "price_month": "📅 1 oylik narx",
+    "price_quarter": "💎 3 oylik narx",
+    "vip_contact": "🆘 Admin kontakt",
+    "channel": "📢 Majburiy kanal",
+    "daily_likes": "❤️ Kunlik bepul layk",
+    "super_daily": "⭐ VIP super layk limiti",
+    "ref_bonus": "🎁 Referal bonus layk",
+    "ref_vip_days": "👑 Referal VIP kunlari",
+    "promo_bonus_week": "🏷 AKOSH: 1 hafta bonusi",
+    "promo_bonus_month": "🏷 AKOSH: 1 oy bonusi",
+    "promo_bonus_quarter": "🏷 AKOSH: 3 oy bonusi",
+    "welcome": "👋 Xush kelibsiz matni",
+    "maintenance": "🛠 Texnik rejim (0/1)",
+}
+
+def cfg_kb():
+    rows = []
+    keys = list(CFG_LABELS)
+    for i in range(0, len(keys), 2):
+        row = [btn(CFG_LABELS[k], f"cfg:{k}") for k in keys[i:i+2]]
+        rows.append(row)
+    rows.append([btn("⬅️ Admin panel", "adm:home")])
+    return kb(*rows)
+
+@admin.callback_query(F.data == "adm:home")
+async def adm_home(c: CallbackQuery, state: FSMContext):
+    await c.answer()
+    await state.clear()
+    pending = await pool.fetchval("SELECT count(*) FROM payments WHERE status='pending'")
+    await c.message.answer(
+        f"🛠 <b>Admin panel</b>\\n⏳ Kutilayotgan to'lovlar: <b>{pending}</b>",
+        reply_markup=admin_kb()
+    )
+
+@admin.callback_query(F.data == "adm:cfg")
+async def adm_cfg(c: CallbackQuery):
+    await c.answer()
+    await c.message.answer(
+        "⚙️ <b>Bot sozlamalari</b>\\nO'zgartirmoqchi bo'lgan parametrni tanlang:",
+        reply_markup=cfg_kb()
+    )
+
+@admin.callback_query(F.data.startswith("cfg:"))
+async def cfg_edit_start(c: CallbackQuery, state: FSMContext):
+    key = c.data.split(":", 1)[1]
+    if key not in CFG_LABELS:
+        return await c.answer("Noma'lum sozlama", show_alert=True)
+    await c.answer()
+    await state.set_state(CfgS.value)
+    await state.update_data(cfg_key=key)
+    await c.message.answer(
+        f"{CFG_LABELS[key]}\\nHozirgi qiymat: <code>{esc(str(CFG.get(key, '')))}</code>\\n"
+        "Yangi qiymatni yuboring. Bekor qilish: /cancel"
+    )
+
+@admin.message(CfgS.value, F.text)
+async def cfg_edit_save(m: Message, state: FSMContext):
+    data = await state.get_data()
+    key = data.get("cfg_key")
+    if key not in CFG_LABELS:
+        await state.clear()
+        return await m.answer("Sozlama topilmadi.")
+    value = m.text.strip()
+    if not value or len(value) > 500:
+        return await m.answer("Qiymat bo'sh bo'lmasin va 500 belgidan oshmasin.")
+    if key in {
+        "price_week", "price_month", "price_quarter", "daily_likes",
+        "super_daily", "ref_bonus", "ref_vip_days",
+        "promo_bonus_week", "promo_bonus_month", "promo_bonus_quarter",
+        "maintenance"
+    }:
+        if not value.isdigit():
+            return await m.answer("Bu sozlama uchun faqat musbat raqam yuboring.")
+        if key == "maintenance" and value not in ("0", "1"):
+            return await m.answer("Texnik rejim uchun 0 yoki 1 yuboring.")
+    if key == "card_number" and not re.fullmatch(r"[0-9 ]{12,25}", value):
+        return await m.answer("Karta raqamini faqat raqam va bo'sh joy bilan yuboring.")
+    if key == "channel" and value and not value.startswith("@"):
+        return await m.answer("Kanal username'ini @ bilan yuboring. O'chirish uchun: off")
+    if key == "channel" and value.lower() == "off":
+        value = ""
+    await set_cfg(key, value)
+    await log_admin(m.from_user.id, "config", None, f"{key}={value}")
+    await state.clear()
+    await m.answer(
+        f"✅ <b>{CFG_LABELS[key]}</b> yangilandi.",
+        reply_markup=admin_kb()
+    )
+
+async def send_payment_card(bot: Bot, admin_id: int, p) -> bool:
+    """Chekni admin chatiga yuboradi va tasdiqlash/rad etish tugmalarini qo'shadi."""
+    u = await get_user(p["user_id"])
+    if not u:
+        return False
+    label = PLANS.get(p["plan"], (p["days"], p["plan"]))[1]
+    caption_text = (
+        f"💳 <b>Yangi to'lov #{p['id']}</b>\\n\\n"
+        f"👤 {esc(u['name'])} | ID: <code>{u['id']}</code>\\n"
+        f"Tarif: {label}\\n"
+        f"Summa: <b>{money(p['amount'])} so'm</b>\\n"
+        f"Promokod: <b>{esc(p['promo_code'] or 'yo‘q')}</b>\\n"
+        f"Holat: {STATUS_TXT.get(p['status'], p['status'])}\\n"
+        f"Sana: {p['created_at']:%d.%m.%Y %H:%M}"
+    )
+    markup = kb(
+        [btn("✅ To'lovni tasdiqlash", f"pay:approve:{p['id']}")],
+        [btn("❌ To'lovni rad etish", f"pay:reject:{p['id']}")]
+    )
+    try:
+        if p["file_type"] == "photo":
+            sent = await bot.send_photo(admin_id, p["file_id"], caption=caption_text,
+                                        reply_markup=markup)
+        else:
+            sent = await bot.send_document(admin_id, p["file_id"], caption=caption_text,
+                                           reply_markup=markup)
+        await pool.execute(
+            "INSERT INTO payment_msgs(payment_id,admin_id,message_id) VALUES($1,$2,$3)",
+            p["id"], admin_id, sent.message_id
+        )
+        return True
+    except Exception:
+        log.exception("Chekni adminga yuborib bo'lmadi: payment=%s admin=%s", p["id"], admin_id)
+        return False
+
+@admin.callback_query(F.data == "adm:pays")
+async def adm_payments(c: CallbackQuery, bot: Bot):
+    await c.answer()
+    rows = await pool.fetch(
+        "SELECT * FROM payments WHERE status='pending' ORDER BY created_at ASC LIMIT 20"
+    )
+    if not rows:
+        return await c.message.answer("✅ Kutilayotgan to'lovlar yo'q.")
+    await c.message.answer(f"💳 <b>Kutilayotgan to'lovlar:</b> {len(rows)} ta")
+    for p in rows:
+        await send_payment_card(bot, c.message.chat.id, p)
+
+@admin.message(Command("payments"))
+async def cmd_payments(m: Message, bot: Bot):
+    rows = await pool.fetch(
+        "SELECT * FROM payments WHERE status='pending' ORDER BY created_at ASC LIMIT 20"
+    )
+    if not rows:
+        return await m.answer("✅ Kutilayotgan to'lovlar yo'q.")
+    for p in rows:
+        await send_payment_card(bot, m.chat.id, p)
+
+@admin.callback_query(F.data.regexp(r"^pay:approve:\d+$"))
+async def payment_approve(c: CallbackQuery, bot: Bot):
+    pid = int(c.data.rsplit(":", 1)[1])
+    async with pool.acquire() as con:
+        async with con.transaction():
+            p = await con.fetchrow(
+                "UPDATE payments SET status='approved',admin_id=$2,decided_at=now() "
+                "WHERE id=$1 AND status='pending' RETURNING *",
+                pid, c.from_user.id
+            )
+            if not p:
+                await c.answer("Bu to'lov allaqachon ko'rib chiqilgan.", show_alert=True)
+                return
+            extra = 0
+            if p["promo_code"]:
+                promo = await con.fetchrow(
+                    "SELECT * FROM promos WHERE code=$1 AND active=TRUE",
+                    p["promo_code"]
+                )
+                if promo:
+                    extra = cfg_int(f"promo_bonus_{p['plan']}")
+                    await con.execute(
+                        "INSERT INTO promo_uses(code,user_id) VALUES($1,$2) "
+                        "ON CONFLICT(code,user_id) DO NOTHING",
+                        p["promo_code"], p["user_id"]
+                    )
+                    await con.execute(
+                        "UPDATE promos SET used=used+1 WHERE code=$1",
+                        p["promo_code"]
+                    )
+            total_days = int(p["days"]) + int(extra)
+            await apply_vip(con, p["user_id"], total_days, c.from_user.id)
+    await log_admin(c.from_user.id, "payment_approved", p["user_id"],
+                    f"payment=#{pid}, days={total_days}")
+    await c.answer("To'lov tasdiqlandi ✅")
+    try:
+        await bot.send_message(
+            p["user_id"],
+            f"✅ <b>To'lovingiz tasdiqlandi!</b>\\n"
+            f"👑 Premium: +{p['days']} kun"
+            + (f" + {extra} bonus kun (AKOSH)" if extra else "")
+            + f"\\nJami: <b>{total_days} kun</b>. Premium faollashtirildi!"
+        )
+    except Exception:
+        pass
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await c.message.answer(f"✅ #{pid} tasdiqlandi. Foydalanuvchiga {total_days} kun Premium berildi.")
+
+@admin.callback_query(F.data.regexp(r"^pay:reject:\d+$"))
+async def payment_reject_start(c: CallbackQuery, state: FSMContext):
+    pid = int(c.data.rsplit(":", 1)[1])
+    exists = await pool.fetchval(
+        "SELECT 1 FROM payments WHERE id=$1 AND status='pending'", pid
+    )
+    if not exists:
+        return await c.answer("To'lov topilmadi yoki ko'rib chiqilgan.", show_alert=True)
+    await c.answer()
+    await state.set_state(AdmReject.reason)
+    await state.update_data(payment_id=pid)
+    await c.message.answer(
+        f"#{pid} to'lovni rad etish sababini yozing:\\n"
+        "Masalan: chek noto'g'ri yoki summa mos emas. /cancel - bekor"
+    )
+
+@admin.message(AdmReject.reason, F.text)
+async def payment_reject_finish(m: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    pid = data.get("payment_id")
+    reason = m.text.strip()[:300]
+    p = await pool.fetchrow(
+        "UPDATE payments SET status='rejected',admin_id=$2,reason=$3,decided_at=now() "
+        "WHERE id=$1 AND status='pending' RETURNING *",
+        pid, m.from_user.id, reason
+    )
+    await state.clear()
+    if not p:
+        return await m.answer("Bu to'lov allaqachon ko'rib chiqilgan.")
+    await log_admin(m.from_user.id, "payment_rejected", p["user_id"], f"payment=#{pid}: {reason}")
+    try:
+        await bot.send_message(
+            p["user_id"],
+            f"❌ <b>#{pid} to'lovingiz rad etildi.</b>\\nSabab: {esc(reason)}\\n"
+            "Iltimos, to'g'ri chek bilan qayta yuboring."
+        )
+    except Exception:
+        pass
+    await m.answer(f"❌ #{pid} to'lov rad etildi.")
+
+@admin.callback_query(F.data == "adm:rev")
+async def adm_revenue(c: CallbackQuery):
+    await c.answer()
+    r = await pool.fetchrow(
+        "SELECT count(*) FILTER (WHERE status='approved') cnt, "
+        "COALESCE(sum(amount) FILTER (WHERE status='approved'),0) total, "
+        "COALESCE(sum(amount) FILTER (WHERE status='approved' AND created_at::date=CURRENT_DATE),0) today "
+        "FROM payments"
+    )
+    await c.message.answer(
+        "💰 <b>To'lovlar hisoboti</b>\\n\\n"
+        f"✅ Tasdiqlangan: {r['cnt']} ta\\n"
+        f"💵 Jami tushum: <b>{money(r['total'])} so'm</b>\\n"
+        f"📅 Bugungi tushum: <b>{money(r['today'])} so'm</b>"
+    )
+
+@admin.callback_query(F.data == "adm:promos")
+async def adm_promos(c: CallbackQuery):
+    await c.answer()
+    rows = await pool.fetch("SELECT * FROM promos ORDER BY created_at DESC LIMIT 30")
+    if not rows:
+        return await c.message.answer("Promokodlar yo'q.")
+    lines = []
+    for p in rows:
+        status = "faol" if p["active"] else "o'chiq"
+        limit = "cheksiz" if not p["max_uses"] else str(p["max_uses"])
+        lines.append(
+            f"🏷 <b>{esc(p['code'])}</b> — {p['percent']}% chegirma | "
+            f"ishlatilgan: {p['used']}/{limit} | {status}"
+        )
+    await c.message.answer(
+        "🏷 <b>Promokodlar</b>\\n\\n" + "\\n".join(lines) +
+        "\\n\\nAKOSH: 1 hafta +3 kun, 1 oy +4 kun, 3 oy +5 kun.\\n"
+        "Yangi promokod: /promo KOD FOIZ [LIMIT] [MUDDAT_KUN]"
+    )
+
+@admin.message(Command("promo"))
+async def cmd_create_promo(m: Message, command: CommandObject):
+    args = (command.args or "").split()
+    if len(args) < 2 or not args[1].isdigit():
+        return await m.answer("Format: <code>/promo KOD FOIZ [LIMIT] [MUDDAT_KUN]</code>")
+    code = args[0].upper()
+    if not re.fullmatch(r"[A-Z0-9_-]{3,24}", code):
+        return await m.answer("Kod 3-24 belgidan iborat bo'lsin (A-Z, 0-9, _ yoki -).")
+    percent = int(args[1])
+    limit = int(args[2]) if len(args) > 2 and args[2].isdigit() else 0
+    days = int(args[3]) if len(args) > 3 and args[3].isdigit() else 0
+    if not 0 <= percent <= 90 or limit < 0 or days < 0:
+        return await m.answer("Foiz 0-90, limit va muddat 0 yoki undan katta bo'lsin.")
+    expiry_sql = "now() + $4 * interval '1 day'" if days else "NULL"
+    await pool.execute(
+        "INSERT INTO promos(code,percent,max_uses,expires_at,active) "
+        f"VALUES($1,$2,$3,{expiry_sql},TRUE) "
+        "ON CONFLICT(code) DO UPDATE SET percent=$2,max_uses=$3,expires_at="
+        + ("now() + $4 * interval '1 day'" if days else "NULL")
+        + ",active=TRUE",
+        code, percent, limit, *([days] if days else [])
+    )
+    await log_admin(m.from_user.id, "promo_create", None, code)
+    await m.answer(f"✅ <b>{esc(code)}</b> promokodi yaratildi.")
+
+@admin.message(Command("delpromo"))
+async def cmd_delete_promo(m: Message, command: CommandObject):
+    code = (command.args or "").strip().upper()
+    if not code:
+        return await m.answer("Format: <code>/delpromo KOD</code>")
+    if code == "AKOSH":
+        return await m.answer("AKOSH asosiy promokodini o'chirib bo'lmaydi.")
+    result = await pool.execute("UPDATE promos SET active=FALSE WHERE code=$1", code)
+    await log_admin(m.from_user.id, "promo_disable", None, code)
+    await m.answer("✅ Promokod o'chirildi." if result.endswith("1") else "Promokod topilmadi.")
+
+@admin.callback_query(F.data == "adm:logs")
+async def adm_logs(c: CallbackQuery):
+    await c.answer()
+    rows = await pool.fetch(
+        "SELECT admin_id,action,target_id,details,created_at FROM admin_logs "
+        "ORDER BY id DESC LIMIT 15"
+    )
+    if not rows:
+        return await c.message.answer("Loglar hali yo'q.")
+    lines = [
+        f"• {r['created_at']:%d.%m %H:%M} | <code>{r['admin_id']}</code> | "
+        f"{esc(r['action'])} | {r['target_id'] or '—'} | {esc(r['details'] or '')}"
+        for r in rows
+    ]
+    await c.message.answer("📜 <b>Oxirgi admin amallari</b>\\n\\n" + "\\n".join(lines))
+
+@admin.callback_query(F.data == "adm:csv")
+async def adm_csv(c: CallbackQuery):
+    await c.answer()
+    rows = await pool.fetch(
+        "SELECT id,user_id,plan,days,amount,promo_code,status,created_at,decided_at "
+        "FROM payments ORDER BY id DESC LIMIT 5000"
+    )
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["payment_id","user_id","plan","days","amount_uzs","promo_code","status","created_at","decided_at"])
+    for r in rows:
+        writer.writerow([r["id"],r["user_id"],r["plan"],r["days"],r["amount"],r["promo_code"],
+                         r["status"],r["created_at"].isoformat(),r["decided_at"].isoformat() if r["decided_at"] else ""])
+    file = BufferedInputFile(out.getvalue().encode("utf-8-sig"), filename="payments.csv")
+    await c.message.answer_document(file, caption="📥 To'lovlar CSV hisoboti")
+
+
 # ====================== ISHGA TUSHIRISH ======================
 async def init_database() -> None:
     """Jadvallarni yaratadi va standart sozlamalarni bazaga yozadi."""
@@ -1814,6 +2171,12 @@ async def init_database() -> None:
                 str(value),
             )
 
+    # AKOSH promokodi: chegirma yo'q, tarifga qarab bonus kunlar qo'shiladi.
+    await pool.execute(
+        "INSERT INTO promos(code, percent, max_uses, active) "
+        "VALUES('AKOSH', 0, 0, TRUE) ON CONFLICT(code) DO NOTHING"
+    )
+    await pool.execute("UPDATE users SET min_age=GREATEST(min_age, 18), is_active=FALSE WHERE age < 18")
     await load_cfg()
     log.info("PostgreSQL bazasi tayyor.")
 
