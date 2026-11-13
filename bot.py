@@ -6,18 +6,20 @@ import asyncpg
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message
-from anthropic import AsyncAnthropic
+from google import genai
+from google.genai import types
 from aiohttp import web
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 DATABASE_URL = os.environ["DATABASE_URL"]
 PORT = int(os.environ.get("PORT", 10000))
 FREE_LIMIT = 3
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
-claude = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+ai = genai.Client(api_key=GEMINI_API_KEY)
 pool: asyncpg.Pool = None
 
 SYSTEM = (
@@ -82,13 +84,12 @@ async def check(m: Message):
 
     wait = await m.answer("Tekshiryapman... ⏳")
     try:
-        resp = await claude.messages.create(
-            model="claude-sonnet-5-5",
-            max_tokens=1500,
-            system=SYSTEM,
-            messages=[{"role": "user", "content": m.text}],
+        resp = await ai.aio.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=m.text,
+            config=types.GenerateContentConfig(system_instruction=SYSTEM),
         )
-        await wait.edit_text(resp.content[0].text)
+        await wait.edit_text(resp.text[:4000])
         await add_usage(uid)
     except Exception as e:
         print("Xato:", e)
