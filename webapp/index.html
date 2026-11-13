@@ -1,108 +1,141 @@
 <!DOCTYPE html>
-<html lang="uz"><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>IELTS AI</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
-:root{--bg:var(--tg-theme-bg-color,#fff);--tx:var(--tg-theme-text-color,#111);--hint:var(--tg-theme-hint-color,#7b7b85);--btn:var(--tg-theme-button-color,#2481cc);--btx:var(--tg-theme-button-text-color,#fff);--card:var(--tg-theme-secondary-bg-color,#f2f3f5)}
+:root{--bg:#f3f5fb;--c:#fff;--t:#101533;--m:#6f7692;--p:#2f4bff;--pl:#e8ecff;--ok:#12a77f;--okl:#dff6ee;--bad:#e5384f;--badl:#fde6e9;--am:#ffb020;--b:#e3e7f3}
+@media(prefers-color-scheme:dark){:root{--bg:#0b0f24;--c:#151a38;--t:#eef0ff;--m:#8d94b8;--p:#6f86ff;--pl:#1e2550;--okl:#0f3029;--badl:#3a1620;--b:#242a52}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 -apple-system,system-ui,sans-serif;padding:60px 0 84px}
-header{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--bg);border-bottom:1px solid rgba(128,128,128,.15)}
-header b{font-size:18px}.pill{border-radius:20px;padding:5px 12px;font-size:13px;background:var(--card);font-weight:600}.pill.pro{background:linear-gradient(135deg,#f6b73c,#ee7b30);color:#fff}
-main{padding:16px;max-width:640px;margin:0 auto}h2{margin:0 0 4px;font-size:22px}
-.card{background:var(--card);border-radius:16px;padding:14px;margin-bottom:12px}
-.hint{color:var(--hint);font-size:14px}.row{display:flex;gap:10px}.row>*{flex:1}
-.hero{background:linear-gradient(135deg,#2481cc,#6a5cff);color:#fff;border-radius:18px;padding:18px;margin-bottom:12px}
-.hero .hint{color:rgba(255,255,255,.85)}
-.bar{height:8px;border-radius:8px;background:rgba(255,255,255,.3);margin:10px 0;overflow:hidden}.bar i{display:block;height:100%;background:#fff;border-radius:8px}
-.stat{text-align:center}.stat b{font-size:24px;display:block}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sk{background:var(--card);border-radius:16px;padding:16px;text-align:center}.sk span{font-size:30px;display:block}
-textarea{width:100%;min-height:170px;border:0;border-radius:14px;padding:12px;font:inherit;background:var(--card);color:var(--tx);resize:vertical}
-button,.btn{display:block;width:100%;border:0;border-radius:14px;padding:13px 16px;font:inherit;font-weight:600;text-align:center;background:var(--btn);color:var(--btx);margin-top:10px}
-button.alt,.btn.alt{background:var(--card);color:var(--tx)}button.gold{background:linear-gradient(135deg,#f6b73c,#ee7b30);color:#fff}button:disabled{opacity:.5}
-.chips{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px}.chip{flex:none;padding:7px 14px;border-radius:20px;background:var(--card);font-size:14px}.chip.on{background:var(--btn);color:var(--btx)}
-.out{margin-top:14px;line-height:1.55}label{display:block;padding:9px 10px;border-radius:10px;margin-top:4px;background:var(--bg)}
-label.g{background:rgba(46,158,79,.2)}label.r{background:rgba(220,60,60,.2)}
-nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--bg);border-top:1px solid rgba(128,128,128,.15);padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px))}
-nav div{flex:1;text-align:center;font-size:11px;color:var(--hint);padding:4px 0}nav b{display:block;font-size:21px;font-weight:400}nav .on{color:var(--btn);font-weight:600}
-.card3{font-family:ui-monospace,monospace;font-size:20px;letter-spacing:1px;margin:8px 0}.lock{text-align:center;padding:24px 10px}
+body{margin:0;background:var(--bg);color:var(--t);font:15px/1.5 'Plus Jakarta Sans',system-ui,sans-serif;padding:calc(env(safe-area-inset-top,0px) + 62px) 0 calc(env(safe-area-inset-bottom,0px) + 84px)}
+header{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 10px;background:var(--c);border-bottom:1px solid var(--b)}
+header b{font-weight:800;font-size:17px}.badge{font-size:12px;font-weight:600;padding:5px 11px;border-radius:99px;background:var(--pl);color:var(--p)}.badge.pro{background:var(--am);color:#3a2600}
+#v{padding:16px;max-width:560px;margin:auto}
+h2{margin:4px 0 12px;font-size:22px;font-weight:800}h3{margin:0 0 8px;font-size:16px}
+.card{background:var(--c);border:1px solid var(--b);border-radius:18px;padding:16px;margin-bottom:12px}
+.m{color:var(--m);font-size:13px}.row{display:flex;gap:8px;margin-top:10px}.row>*{flex:1}
+button{font:inherit;font-weight:600;border:0;border-radius:14px;padding:12px 14px;cursor:pointer;background:var(--pl);color:var(--p)}
+button.pb{background:var(--p);color:#fff}button.ok{background:var(--ok);color:#fff}button.no{background:var(--badl);color:var(--bad)}button.sm{padding:7px 10px;font-size:13px;border-radius:10px}
+button:active{transform:scale(.97)}button:disabled{opacity:.5}
+textarea,input{width:100%;font:inherit;color:var(--t);background:var(--c);border:1.5px solid var(--b);border-radius:14px;padding:12px;outline:0}
+textarea{min-height:170px;resize:vertical}textarea:focus,input:focus{border-color:var(--p)}
+.hero{background:var(--p);color:#fff;border:0;padding:20px}.hero .m{color:#d6dcff}.hero b{font-size:24px;font-weight:800}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}.stats .card{margin:0;text-align:center}.stats b{font-size:24px;font-weight:800;display:block}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}.tile{background:var(--c);border:1px solid var(--b);border-radius:18px;padding:16px;text-align:left;color:var(--t);border-left:5px solid var(--k)}
+.tile i{font-style:normal;font-size:26px;display:block}.tile b{display:block;margin-top:4px}.tile span{font-size:12px;color:var(--m);font-weight:400}
+.pro-bar{display:flex;align-items:center;gap:10px;background:#fff3d6;color:#3a2600;border-radius:16px;padding:13px 15px;margin-bottom:12px;font-weight:600;width:100%;text-align:left}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--c);border-top:1px solid var(--b);padding:6px 4px calc(env(safe-area-inset-bottom,0px) + 6px)}
+nav button{flex:1;background:none;color:var(--m);padding:6px 0;font-size:10.5px;border-radius:10px}nav i{font-style:normal;display:block;font-size:21px}nav .on{color:var(--p)}
+.out{white-space:normal;line-height:1.65}.out b{color:var(--p)}
+.q{margin:14px 0}.opt{display:block;width:100%;text-align:left;margin-top:6px;background:var(--c);border:1.5px solid var(--b);color:var(--t);font-weight:400}.opt.s{border-color:var(--p);background:var(--pl)}.opt.g{border-color:var(--ok);background:var(--okl)}.opt.r{border-color:var(--bad);background:var(--badl)}
+.tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:12px}.tabs button{white-space:nowrap;flex:none}.tabs .on{background:var(--p);color:#fff}
+.li{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--b)}.li:last-child{border:0}
+.tag{font-size:11px;font-weight:600;padding:3px 8px;border-radius:99px;background:var(--pl);color:var(--p)}.tag.ok{background:var(--okl);color:var(--ok)}.tag.no{background:var(--badl);color:var(--bad)}.tag.am{background:#fff3d6;color:#8a5a00}
+.plan{display:block;width:100%;text-align:left;background:var(--c);border:2px solid var(--b);color:var(--t);margin-bottom:8px}.plan.s{border-color:var(--p);background:var(--pl)}
+.toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:var(--t);color:var(--bg);padding:10px 16px;border-radius:12px;z-index:9;font-size:14px}
+.av{width:60px;height:60px;border-radius:50%;background:var(--p);color:#fff;display:grid;place-items:center;font-size:26px;font-weight:800}
 </style></head><body>
-<header><b>🎓 IELTS AI</b><span class="pill" id="pl" onclick="go('pro')"></span></header>
-<main id="m"></main><nav id="nav"></nav>
+<header><b>🎓 IELTS AI</b><span class="badge" id="bd">…</span></header>
+<div id="v"></div><nav id="nav"></nav>
 <script>
-const tg=Telegram.WebApp;tg.ready();tg.expand();
-const $=s=>document.querySelector(s),m=$('#m');let ME={pro:false,left:5,limit:5,name:''};
-const TABS=[['home','🏠','Bosh'],['write','✍️','Writing'],['speak','🎤','Speaking'],['read','📖','Reading'],['listen','🎧','Listening']];
-const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const fmt=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>');
-async function api(p,b){const r=await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:tg.initData,...b})});return r.json()}
-function pill(){const e=$('#pl');e.className='pill'+(ME.pro?' pro':'');e.textContent=ME.pro?'💎 PRO':`Bepul ${ME.left}/${ME.limit}`}
-function S(){try{return JSON.parse(localStorage.st||'{}')}catch(e){return{}}}
-function log(k){const s=S(),d=new Date().toISOString().slice(0,10);s.days=s.days||[];if(!s.days.includes(d))s.days.push(d);s.n=s.n||{};s.n[k]=(s.n[k]||0)+1;try{localStorage.st=JSON.stringify(s)}catch(e){}}
-function streak(){const s=S().days||[];let c=0,d=new Date();while(s.includes(d.toISOString().slice(0,10))){c++;d.setDate(d.getDate()-1)}return c}
-function total(){const n=S().n||{};return Object.values(n).reduce((a,b)=>a+b,0)}
-function go(t){$('#nav').innerHTML=TABS.map(x=>`<div class="${x[0]==t?'on':''}" onclick="go('${x[0]}')"><b>${x[1]}</b>${x[2]}</div>`).join('');scrollTo(0,0);({home,write:wr,speak:sp,read:rd,listen:ls,pro})[t]()}
-function chips(arr,cur,fn){return `<div class="chips">${arr.map((x,i)=>`<div class="chip ${i==cur?'on':''}" onclick="${fn}(${i})">${x}</div>`).join('')}</div>`}
-async function ai(mode,text,box,btn){
-  btn.disabled=true;box.innerHTML='<span class="hint">AI tekshiryapti... ⏳ (10-20 soniya)</span>';
-  try{const d=await api('/api/ai',{mode,text});
-    if(d.ok){box.innerHTML=fmt(d.text);log(mode);if(d.left!=null)ME.left=d.left;pill()}
-    else if(d.error=='limit'){ME.left=0;pill();box.innerHTML=`<div class="card lock">🔒 Bugungi ${ME.limit} ta bepul tekshiruv tugadi.<br><span class="hint">Cheksiz foydalanish uchun Pro oling</span><button class="gold" onclick="go('pro')">💎 Pro olish</button></div>`}
-    else box.textContent=d.error=='auth'?"Ilovani Telegram ichidan oching.":"Xatolik yuz berdi, birozdan keyin urinib ko'ring."
-  }catch(e){box.textContent="Internet xatosi."}
-  btn.disabled=false}
-/* HOME */
-function home(){const p=ME.pro?`<div class="hint">💎 Pro faol · ${ME.until} gacha</div>`:`<div class="hint">Bugun ${ME.left}/${ME.limit} AI tekshiruv qoldi</div><div class="bar"><i style="width:${ME.left/ME.limit*100}%"></i></div><button class="gold" style="margin-top:4px" onclick="go('pro')">💎 Pro ga o'tish — 40 000 so'm</button>`;
-m.innerHTML=`<div class="hero"><h2>Salom${ME.name?', '+esc(ME.name):''} 👋</h2><div class="hint">IELTS ga tayyorlanishni boshlaymizmi?</div><div style="margin-top:12px">${p}</div></div>
-<div class="row"><div class="card stat"><b>🔥 ${streak()}</b><span class="hint">kun ketma-ket</span></div><div class="card stat"><b>✅ ${total()}</b><span class="hint">bajarilgan mashq</span></div></div>
-<div class="grid">${TABS.slice(1).map(x=>`<div class="sk" onclick="go('${x[0]}')"><span>${x[1]}</span><b>${x[2]}</b></div>`).join('')}</div>`}
-/* WRITING */
-const WT=["Some people think children should start school at a very early age. Do the advantages outweigh the disadvantages?","Technology makes our lives easier. To what extent do you agree or disagree?","Some prefer living in big cities, others in small towns. Discuss both views and give your opinion.","Many young people spend too much time online. What problems does this cause and what can be done?"];let wi=0;
-function wsel(i){wi=i;wr()}
-function wr(){m.innerHTML=`<h2>✍️ Writing Task 2</h2><div class="hint">Mavzuni tanlang va kamida 120 ta so'z yozing</div>${chips(WT.map((_,i)=>'Mavzu '+(i+1)),wi,'wsel')}<div class="card"><b>${WT[wi]}</b></div><textarea id="t" placeholder="Write your essay here..."></textarea><div class="hint" id="wc">0 so'z</div><button id="b">Tekshirish</button><div class="out" id="o"></div>`;
-$('#t').oninput=e=>$('#wc').textContent=(e.target.value.trim().split(/\s+/).filter(Boolean).length)+" so'z";
-$('#b').onclick=()=>{const t=$('#t').value,n=t.trim().split(/\s+/).filter(Boolean).length;if(n<40){$('#o').textContent="Kamida 40 ta so'z yozing.";return}ai('writing',"Task: "+WT[wi]+"\n\nEssay:\n"+t,$('#o'),$('#b'))}}
-/* SPEAKING */
-const SQ=[["Describe your hometown.","What do you do in your free time?","Do you prefer mornings or evenings? Why?","What kind of food do you like?"],["Describe a person who influenced you. Say who, how you met, and why.","Describe a place you would like to visit."],["How has technology changed education?","Why do some people prefer to work from home?"]];let sp_=0,sq=0;
-function ssel(i){sp_=i;sq=0;sp()}
-function sp(){const q=SQ[sp_][sq%SQ[sp_].length];
-m.innerHTML=`<h2>🎤 Speaking</h2>${chips(['Part 1','Part 2','Part 3'],sp_,'ssel')}<div class="card"><b>${q}</b></div><textarea id="t" placeholder="Javobingizni inglizcha gapiring yoki yozing..."></textarea><button class="alt" id="mic">🎙 Gapirib yozish</button><button id="b">Tekshirish</button><button class="alt" onclick="sq++;sp()">Boshqa savol</button><div class="out" id="o"></div>`;
-const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(!SR){$('#mic').style.display='none';$('#o').innerHTML='<span class="hint">Mikrofon uchun klaviaturadagi 🎤 tugmasidan foydalaning.</span>'}
-else $('#mic').onclick=()=>{const r=new SR();r.lang='en-US';r.onresult=e=>{$('#t').value+=' '+e.results[0][0].transcript};r.onerror=()=>{$('#o').textContent="Mikrofonga ruxsat bering yoki klaviaturadan foydalaning."};r.start()};
-$('#b').onclick=()=>{if($('#t').value.trim().length<20){$('#o').textContent="Javob juda qisqa.";return}ai('speaking',"Question: "+q+"\nAnswer: "+$('#t').value,$('#o'),$('#b'))}}
-/* QUIZ */
-function quiz(items,k){return items.map((x,i)=>`<div class="card"><b>${i+1}. ${x[0]}</b>${x[1].map((o,j)=>`<label id="${k}${i}_${j}"><input type="radio" name="${k}${i}" value="${j}"> ${o}</label>`).join('')}</div>`).join('')+`<button id="qb">Natijani ko'rish</button><div class="out" id="qo"></div>`}
-function qcheck(items,k,skill){let s=0;items.forEach((x,i)=>{const v=document.querySelector(`input[name=${k}${i}]:checked`);$(`#${k}${i}_${x[2]}`).classList.add('g');if(v&&+v.value==x[2])s++;else if(v)$(`#${k}${i}_${v.value}`).classList.add('r')});
-$('#qo').innerHTML=`<div class="card stat"><b>${s}/${items.length}</b><span class="hint">to'g'ri javob</span></div>`;$('#qb').disabled=true;log(skill)}
-const TFN=["True","False","Not Given"];
-const RD=[{t:"Researchers at several universities have found that students who sleep at least seven hours a night remember new information better than those who sleep less. In one study, two groups learned a list of 40 words. One group slept normally, while the other stayed awake all night. After two days, the group that slept recalled about 20% more words. The researchers suggest that sleep helps the brain move new information into long-term memory. They also noted that a 20-minute nap can improve alertness, though the effect on memory is smaller.",q:[["Students who sleep seven hours remember better.",TFN,0],["Both groups learned 60 words.",TFN,1],["Napping helps memory more than night sleep.",TFN,1],["The study involved children.",TFN,2]]},
-{t:"Urban farming, the practice of growing food in cities, has expanded rapidly over the past decade. Rooftop gardens and vertical farms allow cities to produce vegetables close to where people live, reducing transport costs and emissions. However, critics argue that urban farms need large amounts of electricity for artificial lighting, which can cancel out the environmental benefits. Supporters respond that renewable energy can solve this problem. In Singapore, the government aims to produce 30 percent of the country's nutritional needs locally by 2030.",q:[["Urban farming has grown quickly in recent years.",TFN,0],["Vertical farms use no electricity.",TFN,1],["Singapore already produces 30 percent of its food.",TFN,1],["Farmers in Singapore receive government payments.",TFN,2]]}];
-const LS=[{t:"Hello, this is the Riverside Library. We are open from nine in the morning until six in the evening on weekdays. On Saturdays, we close at two. To join, you need a photo ID and a proof of address. Membership is free for students, and costs ten pounds a year for everyone else.",q:[["What time does the library close on weekdays?",["5 pm","6 pm","2 pm"],1],["What do you need to join?",["Only a student card","Photo ID and proof of address","Ten pounds"],1],["How much does it cost for non-students?",["Free","£2 per month","£10 per year"],2]]},
-{t:"Welcome to the City Gym. Our morning classes start at seven o'clock. Boxing is on Mondays, and yoga is on Tuesdays and Thursdays. A monthly pass costs thirty dollars, and a day pass is five dollars. Please bring your own towel.",q:[["When do morning classes start?",["6 am","7 am","8 am"],1],["Which day is boxing?",["Monday","Tuesday","Thursday"],0],["How much is a monthly pass?",["$5","$30","$50"],1],["What should members bring?",["A towel","A lock","An ID card"],0]]}];
-let ri=0,li=0,spd=.9;
-function lockCard(){return `<div class="card lock">🔒 Bu test faqat Pro uchun<button class="gold" onclick="go('pro')">💎 Pro olish</button></div>`}
-function rsel(i){ri=i;rd()}function lsel(i){li=i;ls()}
-function rd(){const h=`<h2>📖 Reading</h2>${chips(RD.map((_,i)=>'Test '+(i+1)+(i&&!ME.pro?' 🔒':'')),ri,'rsel')}`;
-if(ri&&!ME.pro){m.innerHTML=h+lockCard();return}
-m.innerHTML=h+`<div class="card">${RD[ri].t}</div>`+quiz(RD[ri].q,'r');$('#qb').onclick=()=>qcheck(RD[ri].q,'r','read')}
-function ls(){const h=`<h2>🎧 Listening</h2>${chips(LS.map((_,i)=>'Test '+(i+1)+(i&&!ME.pro?' 🔒':'')),li,'lsel')}`;
-if(li&&!ME.pro){m.innerHTML=h+lockCard();return}
-m.innerHTML=h+`<div class="row"><button id="p">▶️ Tinglash</button><button class="alt" id="sl">🐢 Sekin: ${spd<.9?'ha':"yo'q"}</button></div><div class="hint" style="margin-top:6px">Audio inglizcha o'qiladi, istalgancha qayta tinglang.</div><div style="height:10px"></div>`+quiz(LS[li].q,'l');
-$('#p').onclick=()=>{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(LS[li].t);u.lang='en-GB';u.rate=spd;speechSynthesis.speak(u)};
-$('#sl').onclick=()=>{spd=spd<.9?.9:.7;ls()};$('#qb').onclick=()=>{speechSynthesis.cancel();qcheck(LS[li].q,'l','listen')}}
-/* PRO */
-function copy(t,b){try{navigator.clipboard.writeText(t)}catch(e){}b.textContent='✅ Nusxalandi'}
-function compress(f){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>{const i=new Image();i.onload=()=>{const k=Math.min(1,1100/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.8))};i.onerror=no;i.src=r.result};r.onerror=no;r.readAsDataURL(f)})}
-function pro(){if(ME.pro){m.innerHTML=`<div class="hero"><h2>💎 Pro faol</h2><div class="hint">${ME.until} gacha cheksiz foydalanishingiz mumkin. Muddatni uzaytirish uchun pastdagi qadamlarni takrorlang.</div></div>`}else m.innerHTML='';
-m.innerHTML+=`<div class="hero"><h2>💎 Pro obuna</h2><div class="hint">30 kun uchun</div><h2 style="margin-top:8px">40 000 so'm</h2></div>
-<div class="card">✅ Cheksiz AI Writing va Speaking tekshiruvi<br>✅ Barcha Reading va Listening testlar<br>✅ Tez va batafsil tahlil</div>
-<div class="card"><b>1. Quyidagi kartaga o'tkazing</b><div class="card3">6262 5701 3419 2691</div><div class="hint">Boratova Zarnigor</div><button class="alt" onclick="copy('6262570134192691',this)">📋 Karta raqamini nusxalash</button></div>
-<div class="card"><b>2. Chek rasmini yuboring</b><div class="hint">To'lov skrinshotini tanlang</div><input type="file" accept="image/*" id="f" hidden><button class="alt" onclick="$('#f').click()" id="fb">🖼 Rasm tanlash</button><button id="sb" disabled>📤 Adminga yuborish</button><div class="out" id="po"></div></div>
-<div class="hint">Admin to'lovni tekshirib, odatda tez orada Pro ni yoqadi. Natija haqida bot sizga xabar yuboradi.</div>`;
-$('#f').onchange=e=>{if(e.target.files[0]){$('#fb').textContent='✅ '+e.target.files[0].name.slice(0,24);$('#sb').disabled=false}};
-$('#sb').onclick=async()=>{const f=$('#f').files[0];if(!f)return;$('#sb').disabled=true;$('#po').textContent='Yuborilmoqda... ⏳';
-try{const d=await api('/api/pay',{image:await compress(f)});$('#po').innerHTML=d.ok?'✅ Chek adminga yuborildi! Tasdiqlangach botdan xabar keladi.':"Yuborib bo'lmadi. Chekni botga to'g'ridan-to'g'ri yuboring."}catch(e){$('#po').textContent="Internet xatosi."}}}
-(async()=>{try{const d=await api('/api/me',{});if(d.ok)ME=d}catch(e){}pill();go(location.hash=='#pro'?'pro':'home')})();
+const tg=window.Telegram&&Telegram.WebApp;if(tg){tg.ready();tg.expand()}
+const $=s=>document.querySelector(s),E=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),pick=a=>a[Math.floor(Math.random()*a.length)];
+const money=n=>Number(n||0).toLocaleString('en').replace(/,/g,' ')+" so'm",fmt=t=>E(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>');
+let ME={},tab='home',PLAN='week';
+async function api(p,b={}){try{const r=await fetch('/api/'+p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:tg?tg.initData:'',...b})});return await r.json()}catch(e){return{ok:false,error:'net'}}}
+function toast(t){const d=document.createElement('div');d.className='toast';d.textContent=t;document.body.append(d);setTimeout(()=>d.remove(),2200)}
+const TABS=[['home','🏠','Bosh'],['writing','✍️','Writing'],['speaking','🎤','Speaking'],['reading','📖','Reading'],['listening','🎧','Listening'],['profile','👤','Profil']];
+function go(t){tab=t;nav();render();scrollTo(0,0)}
+function nav(){$('#nav').innerHTML=TABS.map(([k,i,n])=>`<button class="${k==tab?'on':''}" onclick="go('${k}')"><i>${i}</i>${n}</button>`).join('')}
+function badge(){const b=$('#bd');b.className='badge'+(ME.pro?' pro':'');b.textContent=ME.pro?'💎 Pro':`Bepul ${ME.left??0}/${ME.limit??5}`}
+async function load(){const r=await api('me');if(r.ok){ME=r;badge()}else{$('#v').innerHTML='<div class="card"><h3>Ilova faqat Telegram ichida ochiladi</h3><p class="m">Botga kiring va pastdagi «Ilova» tugmasini bosing.</p></div>';return false}return true}
+function render(){const f={home,writing:()=>aiV('writing'),speaking:()=>aiV('speaking'),reading:()=>testV('reading'),listening:()=>testV('listening'),profile,pro,vocab,admin}[tab];$('#v').innerHTML='';f()}
+
+/* ---------- BOSH ---------- */
+function home(){const T=[['writing','✍️','Writing','AI band beradi','#2f4bff'],['speaking','🎤','Speaking','Javobni tekshiradi','#e5384f'],['reading','📖','Reading','Bepul testlar','#12a77f'],['listening','🎧','Listening','Bepul testlar','#ffb020'],['vocab','📚',"Lug'at",'Kunlik so\'zlar','#8b5cf6'],['invite','🎁',"Do'st taklif",'+3 kun Pro','#ec4899']];
+$('#v').innerHTML=`<div class="card hero"><div class="m">Salom, ${E(ME.name||'do\'st')} 👋</div><b>IELTS ga tayyorlanamizmi?</b><div class="m" style="margin-top:6px">${ME.pro?'Pro: '+E(ME.until)+' gacha cheksiz':'Bugun '+ME.left+'/'+ME.limit+' AI tekshiruv qoldi'}</div></div>
+${ME.pro?'':`<button class="pro-bar" onclick="go('pro')">💎 Pro ga o'tish — ${money(ME.plans.week.price)} dan</button>`}
+<div class="stats"><div class="card"><b>🔥 ${ME.streak||0}</b><span class="m">kun ketma-ket</span></div><div class="card"><b>✅ ${ME.checks||0}</b><span class="m">bajarilgan mashq</span></div></div>
+<div class="tiles">${T.map(([k,i,n,s,c])=>`<button class="tile" style="--k:${c}" onclick="${k=='invite'?'invite()':`go('${k}')`}"><i>${i}</i><b>${n}</b><span>${s}</span></button>`).join('')}</div>`}
+
+/* ---------- WRITING / SPEAKING ---------- */
+const WT=['Some people think children should start school early. Discuss both views and give your opinion.','Technology makes people less social. To what extent do you agree?','Should governments spend more on public transport than on roads?','Online learning is replacing classrooms. Is this positive or negative?','Some people prefer to work from home. What are the advantages and disadvantages?'];
+const ST=['Describe a place you like to visit in your city.','Do you prefer studying alone or with others? Why?','Describe a person who has influenced you.','Talk about a book or film you enjoyed recently.','What do you do to stay healthy?'];
+function aiV(m){const w=m=='writing';$('#v').innerHTML=`<h2>${w?'✍️ Writing Task 2':'🎤 Speaking'}</h2><div class="card"><div class="m">${w?'Mavzu':'Savol'}</div><b id="tp">${pick(w?WT:ST)}</b><div class="row"><button class="sm" onclick="$('#tp').textContent=pick(${w?'WT':'ST'})">🔄 Boshqa</button></div></div>
+<textarea id="tx" placeholder="${w?'Inglizcha insho yozing (kamida 80 so\'z)…':'Javobingizni inglizcha yozing yoki 🎤 bosing…'}"></textarea>
+<div class="row">${!w&&(window.SpeechRecognition||window.webkitSpeechRecognition)?'<button id="mic" onclick="mic()">🎤 Gapirish</button>':''}<button class="pb" id="go" onclick="check('${m}')">Tekshirish ✨</button></div><div id="out" style="margin-top:12px"></div>`}
+let rec;function mic(){const S=window.SpeechRecognition||window.webkitSpeechRecognition;if(rec){rec.stop();return}rec=new S();rec.lang='en-US';rec.continuous=true;rec.onresult=e=>{$('#tx').value=[...e.results].map(r=>r[0].transcript).join(' ')};rec.onend=()=>{rec=null;$('#mic').textContent='🎤 Gapirish'};rec.start();$('#mic').textContent='⏹ To\'xtatish'}
+async function check(m){const t=$('#tx').value.trim();if(t.length<30)return toast('Matn juda qisqa — kamida 2-3 gap yozing');
+const b=$('#go');b.disabled=true;b.textContent='Tekshirilmoqda…';$('#out').innerHTML='<div class="card m">AI javobingizni o\'qiyapti, 10–20 soniya kuting ⏳</div>';
+const r=await api('ai',{mode:m,text:(m=='writing'?'Task: ':'Question: ')+$('#tp').textContent+'\n\nAnswer:\n'+t});b.disabled=false;b.textContent='Tekshirish ✨';
+if(r.ok){ME.left=r.left;ME.checks=(ME.checks||0)+1;badge();$('#out').innerHTML=`<div class="card out">${fmt(r.text)}</div>`}
+else if(r.error=='limit'){$('#out').innerHTML=`<div class="card"><h3>Bugungi bepul tekshiruv tugadi</h3><p class="m">Pro bilan cheksiz tekshirish mumkin.</p><button class="pb" style="width:100%" onclick="go('pro')">💎 Pro olish</button></div>`}
+else $('#out').innerHTML=`<div class="card"><h3>Tekshirib bo'lmadi</h3><p class="m">${r.error=='net'?'Internet aloqasi yo\'q. Qayta urinib ko\'ring.':'AI hozir band. 1 daqiqadan keyin qayta urinib ko\'ring — urinish hisobga olinmadi.'}</p>${r.detail?`<p class="m" style="word-break:break-all">${E(r.detail)}</p>`:''}<button onclick="check('${m}')">🔁 Qayta urinish</button></div>`}
+
+/* ---------- READING / LISTENING (bepul + AI yangi) ---------- */
+const BANK={reading:[
+{n:'Sleep and memory',t:'Scientists have long known that sleep matters for learning, but recent studies show how. During deep sleep, the brain replays the day\'s events and moves important information from short-term storage to long-term memory. Students who slept eight hours after studying remembered about 20 percent more than those who stayed awake. Researchers also found that short naps of twenty minutes can improve alertness without causing grogginess, while naps over an hour often leave people tired.',q:[['What happens during deep sleep?',['The brain stops working','Memories are moved to long-term storage','People forget the day'],1],['How much more did students who slept remember?',['About 10%','About 20%','About 50%'],1],['Which nap is recommended?',['Twenty minutes','One hour','Two hours'],0]]},
+{n:'Urban gardens',t:'Cities around the world are turning unused rooftops and empty lots into gardens. These spaces produce fresh vegetables, reduce the temperature of buildings and give residents a place to meet. In one project in Toronto, a rooftop farm supplies several local restaurants. Critics argue that urban gardens cannot replace traditional farming because they produce small amounts of food, yet supporters say the social and environmental benefits are just as important as the harvest.',q:[['Where do urban gardens grow?',['Only in parks','On rooftops and empty lots','Inside schools'],1],['What do critics say?',['They cost too much','They produce small amounts of food','They are unsafe'],1],['Supporters value mainly…',['Profit','Social and environmental benefits','Tourism'],1]]},
+{n:'The history of tea',t:'Tea was first drunk in China more than two thousand years ago, originally as a medicine. By the sixth century it had become an everyday drink. Traders brought tea to Europe in the seventeenth century, where it was so expensive that only wealthy families could afford it. When production expanded in India and Sri Lanka in the nineteenth century, prices fell and tea became popular with all social classes.',q:[['Tea was first used as…',['A medicine','A decoration','Currency'],0],['Why was tea rare in 17th-century Europe?',['It was banned','It was expensive','It was unknown'],1],['What made tea cheaper?',['Production in India and Sri Lanka','New taxes','A war'],0]]}],
+listening:[
+{n:'Library registration',t:'Good morning. To join the city library you need to fill in a form and bring one photo ID. Membership is free for residents, but visitors pay twelve dollars a year. The library opens at nine in the morning and closes at six, except on Thursdays, when it stays open until eight. You can borrow up to five books for three weeks. If you are late, the fine is fifty cents a day.',q:[['How much do visitors pay per year?',['$5','$12','Nothing'],1],['When does the library close on Thursdays?',['6 pm','8 pm','9 pm'],1],['How many books can you borrow?',['Three','Five','Ten'],1],['What is the daily late fine?',['50 cents','One dollar','No fine'],0]]},
+{n:'Campus tour',t:'Welcome to Westfield University. We will start at the main hall, built in nineteen twenty-six. The science building is on your left, and the student cafeteria is behind it. The cafeteria serves lunch from eleven thirty to two. Our sports centre has a swimming pool that is open every day at seven in the morning. The tour finishes at the bookshop at four o\'clock, where students get a ten percent discount.',q:[['When was the main hall built?',['1916','1926','1936'],1],['Lunch is served until…',['1 pm','2 pm','4 pm'],1],['When does the pool open?',['7 am','9 am','11 am'],0],['Student discount at the bookshop?',['5%','10%','20%'],1]]},
+{n:'Weather report',t:'Here is the weather for this weekend. Saturday will be sunny with a high of twenty-four degrees. Sunday starts cloudy, with rain expected after lunch, and the temperature will drop to eighteen. Monday brings strong winds in the north, so ferry services may be cancelled. Next week looks warmer, reaching twenty-six degrees by Thursday.',q:[['Saturday\'s high temperature?',['18°','24°','26°'],1],['When will it rain on Sunday?',['Morning','After lunch','Evening'],1],['What may be cancelled on Monday?',['Trains','Ferry services','Flights'],1],['Warmest day next week?',['Tuesday','Thursday','Friday'],1]]}]};
+function testV(k){const R=k=='reading';$('#v').innerHTML=`<h2>${R?'📖 Reading':'🎧 Listening'}</h2><div class="card"><button class="pb" style="width:100%" onclick="aiTest('${k}')">✨ AI yangi test yaratsin ${ME.pro?'':'(Pro)'}</button></div><h3>Bepul testlar</h3>${BANK[k].map((x,i)=>`<button class="plan" onclick="runTest('${k}',${i})"><b>${E(x.n)}</b><div class="m">${x.q.length} ta savol</div></button>`).join('')}`}
+async function aiTest(k){if(!ME.pro){toast('AI testlar Pro uchun');return go('pro')}$('#v').innerHTML='<div class="card m">AI yangi test yaratyapti… ⏳</div>';const r=await api('gen',{kind:k});
+if(r.ok)return quiz(k,r.data.t,r.data.q,'AI test');$('#v').innerHTML=`<div class="card"><h3>Test yaratib bo'lmadi</h3><p class="m">${r.error=='pro'?'Bu funksiya Pro uchun.':'AI band. Qayta urinib ko\'ring.'}</p>${r.detail?`<p class="m">${E(r.detail)}</p>`:''}<button onclick="aiTest('${k}')">🔁 Qayta</button> <button onclick="go('${k}')">Orqaga</button></div>`}
+function runTest(k,i){const x=BANK[k][i];quiz(k,x.t,x.q,x.n)}
+let A=[];
+function quiz(k,t,q,n){A=q.map(()=>-1);const L=k=='listening';$('#v').innerHTML=`<h2>${E(n)}</h2><div class="card">${L?`<button class="pb" id="pl" onclick="speak(this)">▶️ Tinglash</button> <button class="sm" onclick="$('#tt').hidden=!$('#tt').hidden">📄 Matn</button><p id="tt" hidden class="m" style="margin-top:10px">${E(t)}</p>`:`<div class="out">${E(t)}</div>`}</div>
+${q.map((x,i)=>`<div class="card q"><b>${i+1}. ${E(x[0])}</b>${x[1].map((o,j)=>`<button class="opt" id="o${i}_${j}" onclick="sel(${i},${j})">${E(o)}</button>`).join('')}</div>`).join('')}<button class="pb" style="width:100%" id="fin">Natijani ko'rish</button><div id="res"></div>`;window.QD=q;$('#fin').onclick=()=>fin(k)}
+function sel(i,j){if($('#fin').disabled)return;A[i]=j;QD[i][1].forEach((_,x)=>$(`#o${i}_${x}`).classList.toggle('s',x==j))}
+function speak(b){const s=speechSynthesis;if(s.speaking){s.cancel();b.textContent='▶️ Tinglash';return}const u=new SpeechSynthesisUtterance($('#tt').textContent);u.lang='en-GB';u.rate=.9;u.onend=()=>b.textContent='▶️ Qayta tinglash';s.speak(u);b.textContent='⏹ To\'xtatish'}
+function fin(k){if(A.includes(-1))return toast('Hamma savolga javob bering');if(window.speechSynthesis)speechSynthesis.cancel();$('#fin').disabled=true;let s=0;QD.forEach((x,i)=>{s+=A[i]==x[2];$(`#o${i}_${x[2]}`).className='opt g';if(A[i]!=x[2])$(`#o${i}_${A[i]}`).className='opt r'});
+$('#res').innerHTML=`<div class="card hero" style="margin-top:12px"><b>${s}/${QD.length} to'g'ri</b><div class="m">${s==QD.length?'Ajoyib natija! 🎉':s>=QD.length/2?'Yaxshi, yana mashq qiling 💪':'Matnni qayta o\'qib ko\'ring 📚'}</div></div><button style="width:100%" onclick="go('${k}')">Boshqa test</button>`}
+
+/* ---------- LUG'AT ---------- */
+const W=[['mitigate','yengillashtirmoq','Trees mitigate the effects of pollution.'],['sustainable','barqaror','We need sustainable energy sources.'],['crucial','juda muhim','Sleep is crucial for learning.'],['hinder','to\'sqinlik qilmoq','Noise can hinder concentration.'],['thrive','gullab-yashnamoq','Small businesses thrive in big cities.'],['inevitable','muqarrar','Change is inevitable.'],['advocate','yoqlab chiqmoq','Many experts advocate longer holidays.'],['scarce','kam uchraydigan','Fresh water is scarce in some regions.'],['reluctant','istamaydigan','He was reluctant to speak in public.'],['enhance','yaxshilamoq','Reading enhances vocabulary.']];
+function vocab(){$('#v').innerHTML=`<h2>📚 Lug'at</h2><p class="m">So'zni bosing — tarjimasi chiqadi.</p>${W.map((w,i)=>`<button class="plan" onclick="this.querySelector('.d').hidden=!this.querySelector('.d').hidden"><b>${w[0]}</b><div class="d" hidden><div>${w[1]}</div><div class="m">${E(w[2])}</div></div></button>`).join('')}`}
+
+/* ---------- DO'ST TAKLIF ---------- */
+function invite(){const u='https://t.me/share/url?url='+encodeURIComponent(ME.ref)+'&text='+encodeURIComponent('IELTS ga AI bilan tayyorlan 🎓');tg?tg.openTelegramLink(u):open(u)}
+
+/* ---------- PROFIL ---------- */
+function profile(){const h=ME.hist||[];$('#v').innerHTML=`<div class="card" style="display:flex;gap:14px;align-items:center"><div class="av">${E((ME.name||'?')[0]).toUpperCase()}</div><div><b style="font-size:18px">${E(ME.name)}</b><div class="m">ID: ${ME.id}</div><span class="tag ${ME.pro?'am':''}">${ME.pro?'💎 Pro — '+E(ME.until):'Bepul tarif'}</span></div></div>
+<div class="stats"><div class="card"><b>${ME.checks||0}</b><span class="m">AI tekshiruv</span></div><div class="card"><b>${ME.invited||0}</b><span class="m">taklif qilingan do'st</span></div></div>
+<div class="card"><div class="li"><span class="m">Ro'yxatdan o'tgan</span><b>${E(ME.joined||'—')}</b></div><div class="li"><span class="m">Bugungi bepul tekshiruv</span><b>${ME.pro?'cheksiz':ME.left+'/'+ME.limit}</b></div></div>
+${ME.pro?'':`<button class="pro-bar" onclick="go('pro')">💎 Pro ga o'tish — ${money(ME.plans.week.price)} dan</button>`}
+<div class="card"><h3>🎁 Do'st taklif qiling</h3><p class="m">Do'stingiz qo'shilsa, ikkalangizga +3 kun Pro.</p><div class="row"><button onclick="navigator.clipboard.writeText(ME.ref).then(()=>toast('Havola nusxalandi'))">📋 Nusxa</button><button class="pb" onclick="invite()">Yuborish</button></div></div>
+${h.length?`<div class="card"><h3>To'lovlar tarixi</h3>${h.map(x=>`<div class="li"><span>${E(x.plan)}<div class="m">${E(x.date)} · ${money(x.amount)}</div></span><span class="tag ${x.status=='approved'?'ok':x.status=='rejected'?'no':'am'}">${{approved:'Tasdiqlandi',rejected:'Rad etildi',pending:'Kutilmoqda'}[x.status]}</span></div>`).join('')}</div>`:''}
+${ME.admin?`<button class="pb" style="width:100%" onclick="go('admin')">🛠 Admin panel</button>`:''}`}
+
+/* ---------- PRO ---------- */
+function pro(){const P=ME.plans;$('#v').innerHTML=`<h2>💎 Pro obuna</h2><div class="card m">✅ Cheksiz AI tekshiruv (Writing va Speaking)<br>✅ AI yaratgan yangi Reading va Listening testlar<br>✅ Admin tasdiqlashi bilan avtomatik yoqiladi</div>
+${Object.keys(P).map(k=>`<button class="plan ${k==PLAN?'s':''}" onclick="PLAN='${k}';pro()"><b>${k=='week'?'1 hafta':'1 oy'}</b> — ${money(P[k].price)}<div class="m">${P[k].days} kun${k=='month'?' · tejamli':''}</div></button>`).join('')}
+<div class="card"><div class="m">1. Shu kartaga to'lang</div><h3 style="letter-spacing:1px">${E(ME.card)}</h3><div class="m">${E(ME.holder)}</div><div class="row"><button onclick="navigator.clipboard.writeText('${E(ME.card).replace(/ /g,'')}').then(()=>toast('Karta nusxalandi'))">📋 Nusxa</button></div></div>
+<div class="card"><div class="m">2. Chek rasmini yuboring</div><input type="file" id="ck" accept="image/*" style="margin:8px 0"><button class="pb" style="width:100%" id="sp" onclick="sendPay()">Chekni yuborish</button></div>`}
+function shrink(f){return new Promise(r=>{const i=new Image();i.onload=()=>{const k=Math.min(1,1200/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.8))};i.src=URL.createObjectURL(f)})}
+async function sendPay(){const f=$('#ck').files[0];if(!f)return toast('Avval chek rasmini tanlang');const b=$('#sp');b.disabled=true;b.textContent='Yuborilmoqda…';
+const r=await api('pay',{image:await shrink(f),plan:PLAN});b.disabled=false;b.textContent='Chekni yuborish';
+if(r.ok){$('#v').innerHTML='<div class="card"><h3>✅ Chek yuborildi</h3><p class="m">Admin tasdiqlagach Pro avtomatik yoqiladi va botda xabar keladi.</p><button class="pb" onclick="go(\'home\')">Bosh sahifa</button></div>';await load()}else toast('Yuborib bo\'lmadi, qayta urinib ko\'ring')}
+
+/* ---------- ADMIN ---------- */
+let AT='stats';const SN={week_price:'1 hafta narxi',month_price:'1 oy narxi',free_limit:'Kunlik bepul limit',card:'Karta raqami',holder:'Karta egasi'};
+function admin(){if(!ME.admin)return go('home');$('#v').innerHTML=`<h2>🛠 Admin panel</h2><div class="tabs">${[['stats','📊 Statistika'],['pays','💳 To\'lovlar'],['users','👥 Foydalanuvchilar'],['bcast','📣 Xabar'],['set','⚙️ Sozlama']].map(([k,n])=>`<button class="${k==AT?'on':''}" onclick="AT='${k}';admin()">${n}</button>`).join('')}</div><div id="ad"><div class="m">Yuklanmoqda…</div></div>`;({stats:aStats,pays:aPays,users:aUsers,bcast:aB,set:aSet})[AT]()}
+async function aStats(){const r=await api('admin',{a:'stats'});const S=[['👥','users','Jami foydalanuvchi'],['🆕','new_today','Bugun qo\'shilgan'],['💎','pro','Faol Pro'],['⚡','active','Bugun faol'],['🧠','checks','Bugungi tekshiruv'],['⏳','pending','Kutilayotgan chek']];
+$('#ad').innerHTML=`<div class="stats">${S.map(([i,k,n])=>`<div class="card"><b>${i} ${r[k]??0}</b><span class="m">${n}</span></div>`).join('')}</div><div class="card"><div class="li"><span class="m">30 kunlik daromad</span><b>${money(r.rev30)}</b></div><div class="li"><span class="m">Jami daromad</span><b>${money(r.rev)}</b></div></div>`}
+async function aPays(){const r=await api('admin',{a:'pays'});const N={week:'1 hafta',month:'1 oy'};$('#ad').innerHTML=(r.pays||[]).map(p=>`<div class="card"><div class="li" style="padding-top:0"><span><b>#${p.id} ${E(p.name||p.uid)}</b><div class="m">ID ${p.uid} · ${E(p.date)} · ${N[p.plan]||'tanlanmagan'}</div></span><span class="tag ${p.status=='approved'?'ok':p.status=='rejected'?'no':'am'}">${{approved:'Tasdiq',rejected:'Rad',pending:'Kutilmoqda'}[p.status]}</span></div>
+${p.status=='pending'?`<div class="row"><button class="ok sm" onclick="dec(${p.id},'ok','week')">✅ 1 hafta</button><button class="ok sm" onclick="dec(${p.id},'ok','month')">✅ 1 oy</button><button class="no sm" onclick="dec(${p.id},'no')">❌</button></div><div class="m" style="margin-top:6px">Chek rasmi sizning Telegram chatingizga yuborilgan.</div>`:''}</div>`).join('')||'<div class="card m">To\'lovlar yo\'q</div>'}
+async function dec(pid,act,plan){const r=await api('admin',{a:'decide',pid,act,plan});toast(r.note||'Xato');aPays()}
+async function aUsers(q=''){$('#ad').innerHTML=`<input id="uq" placeholder="Ism, @username yoki ID" value="${E(q)}" onchange="aUsers(this.value)" style="margin-bottom:10px"><div id="ul" class="m">Yuklanmoqda…</div>`;const r=await api('admin',{a:'users',q});
+$('#ul').innerHTML=(r.users||[]).map(u=>`<div class="card"><div class="li" style="padding-top:0"><span><b>${E(u.name||'—')}</b> ${u.username?'@'+E(u.username):''}<div class="m">ID ${u.id} · ${E(u.joined)} · ${u.checks} ta tekshiruv</div></span><span class="tag ${u.until?'am':''}">${u.until?'💎 '+E(u.until):'Bepul'}</span></div><div class="row"><button class="sm" onclick="gr(${u.id},7)">+7 kun</button><button class="sm" onclick="gr(${u.id},30)">+30 kun</button>${u.until?`<button class="no sm" onclick="rv(${u.id})">Pro olish</button>`:''}</div></div>`).join('')||'<div class="card m">Topilmadi</div>'}
+async function gr(uid,days){await api('admin',{a:'grant',uid,days});toast('Pro berildi');aUsers($('#uq').value)}
+async function rv(uid){if(!confirm('Proni olib tashlaysizmi?'))return;await api('admin',{a:'revoke',uid});toast('Olib tashlandi');aUsers($('#uq').value)}
+function aB(){$('#ad').innerHTML=`<div class="card"><h3>Hammaga xabar yuborish</h3><textarea id="bt" style="min-height:130px" placeholder="Xabar matni…"></textarea><button class="pb" style="width:100%;margin-top:10px" onclick="sb()">📣 Yuborish</button></div>`}
+async function sb(){const t=$('#bt').value.trim();if(t.length<3)return toast('Matn yozing');if(!confirm('Barcha foydalanuvchilarga yuborilsinmi?'))return;const r=await api('admin',{a:'bcast',text:t});toast(r.ok?'Yuborilmoqda… natija botda keladi':'Xato');if(r.ok)$('#bt').value=''}
+async function aSet(){const r=await api('admin',{a:'settings'});$('#ad').innerHTML=`<div class="card">${Object.keys(SN).map(k=>`<div style="margin-bottom:12px"><div class="m">${SN[k]}</div><div class="row" style="margin-top:4px"><input id="s_${k}" value="${E(r.set[k])}"><button class="pb sm" style="flex:none" onclick="ss('${k}')">Saqlash</button></div></div>`).join('')}</div>`}
+async function ss(k){const r=await api('admin',{a:'set',key:k,value:$('#s_'+k).value});toast(r.ok?'Saqlandi ✅':'Noto\'g\'ri qiymat');await load()}
+
+(async()=>{if(await load()){const h=location.hash.slice(1);if(['pro','admin'].includes(h))tab=h;nav();render()}})();
 </script></body></html>
