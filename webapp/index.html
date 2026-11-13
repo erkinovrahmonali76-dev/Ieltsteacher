@@ -1,1 +1,54 @@
-
+<!DOCTYPE html>
+<html lang="uz"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IELTS AI</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:var(--tg-theme-bg-color,#fff);--tx:var(--tg-theme-text-color,#111);--hint:var(--tg-theme-hint-color,#777);--btn:var(--tg-theme-button-color,#2481cc);--btx:var(--tg-theme-button-text-color,#fff);--card:var(--tg-theme-secondary-bg-color,#f1f1f4)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 -apple-system,system-ui,sans-serif;padding-bottom:78px}
+main{padding:16px}h2{margin:0 0 12px}.card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px}
+textarea{width:100%;min-height:150px;border:0;border-radius:12px;padding:12px;font:inherit;background:var(--card);color:var(--tx)}
+button{border:0;border-radius:12px;padding:12px 16px;font:inherit;background:var(--btn);color:var(--btx);width:100%;margin-top:10px}
+button.alt{background:var(--card);color:var(--tx)}
+.out{white-space:pre-wrap;margin-top:12px}.hint{color:var(--hint);font-size:14px}
+label{display:block;padding:8px 0}nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px))}
+nav div{flex:1;text-align:center;font-size:12px;color:var(--hint);padding:6px 0}nav div b{display:block;font-size:22px;font-weight:400}nav .on{color:var(--btn)}
+.ok{color:#2e9e4f}.bad{color:#d33}
+</style></head><body>
+<main id="m"></main>
+<nav id="nav"></nav>
+<script>
+const tg=window.Telegram.WebApp;tg.ready();tg.expand();
+const $=s=>document.querySelector(s), m=$('#m');
+const tabs=[['write','✍️','Writing'],['speak','🎤','Speaking'],['read','📖','Reading'],['listen','🎧','Listening']];
+const SPEAK=["Describe your hometown. What do you like about it?","Talk about a book or film you enjoyed recently.","Describe a person who has influenced you.","What do you usually do on weekends?"];
+const READ={t:"Researchers at several universities have found that students who sleep at least seven hours a night remember new information better than those who sleep less. In one study, two groups learned a list of 40 words. One group slept normally, while the other stayed awake all night. After two days, the group that slept recalled about 20% more words. The researchers suggest that sleep helps the brain move new information into long-term memory. They also noted that a 20-minute nap can improve alertness, though the effect on memory is smaller.",
+q:[["Students who sleep seven hours remember better.","True"],["Both groups learned 60 words.","False"],["Napping helps memory more than night sleep.","False"],["The study involved children.","Not Given"]]};
+const LIST={t:"Hello, this is the Riverside Library. We are open from nine in the morning until six in the evening on weekdays. On Saturdays, we close at two. To join, you need a photo ID and a proof of address. Membership is free for students, and costs ten pounds a year for everyone else.",
+q:[["What time does the library close on weekdays?",["5 pm","6 pm","2 pm"],1],["What do you need to join?",["Only a student card","Photo ID and proof of address","Ten pounds"],1],["How much does it cost for non-students?",["Free","£2 per month","£10 per year"],2]]};
+function nav(t){$('#nav').innerHTML=tabs.map(x=>`<div class="${x[0]==t?'on':''}" onclick="go('${x[0]}')"><b>${x[1]}</b>${x[2]}</div>`).join('')}
+function go(t){nav(t);({write:wr,speak:sp,read:rd,listen:ls})[t]()}
+async function callAI(mode,text,box,btn){
+  if(text.trim().length<10){box.textContent="Matn juda qisqa.";return}
+  btn.disabled=true;box.textContent="Tekshiryapman... ⏳";
+  try{const r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:tg.initData,mode,text})});
+    const d=await r.json();
+    box.textContent=d.ok?d.text:d.error=='limit'?"Bugungi bepul limit tugadi 💎":d.error=='auth'?"Ilovani Telegram ichidan oching.":"Xatolik, keyinroq urinib ko'ring.";
+  }catch(e){box.textContent="Internet xatosi."}
+  btn.disabled=false}
+function wr(){m.innerHTML=`<h2>✍️ Writing</h2><p class="hint">Inglizcha matn yozing (essay yoki xat). AI band va xatolarni aytadi.</p><textarea id="t" placeholder="Write your essay here..."></textarea><button id="b">Tekshirish</button><div class="out" id="o"></div>`;
+  $('#b').onclick=()=>callAI('writing',$('#t').value,$('#o'),$('#b'))}
+function sp(){const q=SPEAK[Math.floor(Math.random()*SPEAK.length)];
+  m.innerHTML=`<h2>🎤 Speaking</h2><div class="card"><b>${q}</b></div><textarea id="t" placeholder="Javobingizni gapiring yoki yozing (inglizcha)..."></textarea><button class="alt" id="mic">🎙 Gapirib yozish</button><button id="b">Tekshirish</button><button class="alt" onclick="sp()">Boshqa savol</button><div class="out" id="o"></div>`;
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){$('#mic').style.display='none';$('#o').innerHTML='<span class="hint">Mikrofon bu yerda ishlamasa, klaviaturadagi 🎤 tugmasidan foydalaning.</span>'}
+  else $('#mic').onclick=()=>{const r=new SR();r.lang='en-US';r.onresult=e=>{$('#t').value+=' '+e.results[0][0].transcript};r.onerror=()=>{$('#o').textContent="Mikrofon ruxsat bering yoki klaviaturadan foydalaning."};r.start()};
+  $('#b').onclick=()=>callAI('speaking',"Question: "+q+"\nAnswer: "+$('#t').value,$('#o'),$('#b'))}
+function rd(){m.innerHTML=`<h2>📖 Reading</h2><div class="card">${READ.t}</div>`+READ.q.map((x,i)=>`<div class="card"><div>${i+1}. ${x[0]}</div>${['True','False','Not Given'].map(o=>`<label><input type="radio" name="r${i}" value="${o}"> ${o}</label>`).join('')}</div>`).join('')+`<button id="b">Natijani ko'rish</button><div class="out" id="o"></div>`;
+  $('#b').onclick=()=>{let s=0;READ.q.forEach((x,i)=>{const v=document.querySelector(`input[name=r${i}]:checked`);if(v&&v.value==x[1])s++});$('#o').innerHTML=`Natija: <b>${s}/${READ.q.length}</b><br><span class="hint">To'g'ri javoblar: ${READ.q.map(x=>x[1]).join(', ')}</span>`}}
+function ls(){m.innerHTML=`<h2>🎧 Listening</h2><button id="p">▶️ Audioni tinglash</button><p class="hint">Audio inglizcha o'qiladi. Istalgancha qayta tinglang.</p>`+LIST.q.map((x,i)=>`<div class="card"><div>${i+1}. ${x[0]}</div>${x[1].map((o,j)=>`<label><input type="radio" name="l${i}" value="${j}"> ${o}</label>`).join('')}</div>`).join('')+`<button id="b">Natijani ko'rish</button><div class="out" id="o"></div>`;
+  $('#p').onclick=()=>{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(LIST.t);u.lang='en-GB';u.rate=.9;speechSynthesis.speak(u)};
+  $('#b').onclick=()=>{let s=0;LIST.q.forEach((x,i)=>{const v=document.querySelector(`input[name=l${i}]:checked`);if(v&&+v.value==x[2])s++});$('#o').innerHTML=`Natija: <b>${s}/${LIST.q.length}</b>`}}
+go('write');
+</script></body></html>
