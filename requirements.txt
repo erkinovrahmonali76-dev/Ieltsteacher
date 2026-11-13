@@ -1,0 +1,4 @@
+aiogram>=3.4
+anthropic>=0.40
+asyncpg>=0.29
+aiohttp>=3.9
