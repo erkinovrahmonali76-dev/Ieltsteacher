@@ -5,50 +5,104 @@
 <title>IELTS AI</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{--bg:var(--tg-theme-bg-color,#fff);--tx:var(--tg-theme-text-color,#111);--hint:var(--tg-theme-hint-color,#777);--btn:var(--tg-theme-button-color,#2481cc);--btx:var(--tg-theme-button-text-color,#fff);--card:var(--tg-theme-secondary-bg-color,#f1f1f4)}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 -apple-system,system-ui,sans-serif;padding-bottom:78px}
-main{padding:16px}h2{margin:0 0 12px}.card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px}
-textarea{width:100%;min-height:150px;border:0;border-radius:12px;padding:12px;font:inherit;background:var(--card);color:var(--tx)}
-button{border:0;border-radius:12px;padding:12px 16px;font:inherit;background:var(--btn);color:var(--btx);width:100%;margin-top:10px}
-button.alt{background:var(--card);color:var(--tx)}
-.out{white-space:pre-wrap;margin-top:12px}.hint{color:var(--hint);font-size:14px}
-label{display:block;padding:8px 0}nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px))}
-nav div{flex:1;text-align:center;font-size:12px;color:var(--hint);padding:6px 0}nav div b{display:block;font-size:22px;font-weight:400}nav .on{color:var(--btn)}
-.ok{color:#2e9e4f}.bad{color:#d33}
+:root{--bg:var(--tg-theme-bg-color,#fff);--tx:var(--tg-theme-text-color,#111);--hint:var(--tg-theme-hint-color,#7b7b85);--btn:var(--tg-theme-button-color,#2481cc);--btx:var(--tg-theme-button-text-color,#fff);--card:var(--tg-theme-secondary-bg-color,#f2f3f5)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 -apple-system,system-ui,sans-serif;padding:60px 0 84px}
+header{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--bg);border-bottom:1px solid rgba(128,128,128,.15)}
+header b{font-size:18px}.pill{border-radius:20px;padding:5px 12px;font-size:13px;background:var(--card);font-weight:600}.pill.pro{background:linear-gradient(135deg,#f6b73c,#ee7b30);color:#fff}
+main{padding:16px;max-width:640px;margin:0 auto}h2{margin:0 0 4px;font-size:22px}
+.card{background:var(--card);border-radius:16px;padding:14px;margin-bottom:12px}
+.hint{color:var(--hint);font-size:14px}.row{display:flex;gap:10px}.row>*{flex:1}
+.hero{background:linear-gradient(135deg,#2481cc,#6a5cff);color:#fff;border-radius:18px;padding:18px;margin-bottom:12px}
+.hero .hint{color:rgba(255,255,255,.85)}
+.bar{height:8px;border-radius:8px;background:rgba(255,255,255,.3);margin:10px 0;overflow:hidden}.bar i{display:block;height:100%;background:#fff;border-radius:8px}
+.stat{text-align:center}.stat b{font-size:24px;display:block}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sk{background:var(--card);border-radius:16px;padding:16px;text-align:center}.sk span{font-size:30px;display:block}
+textarea{width:100%;min-height:170px;border:0;border-radius:14px;padding:12px;font:inherit;background:var(--card);color:var(--tx);resize:vertical}
+button,.btn{display:block;width:100%;border:0;border-radius:14px;padding:13px 16px;font:inherit;font-weight:600;text-align:center;background:var(--btn);color:var(--btx);margin-top:10px}
+button.alt,.btn.alt{background:var(--card);color:var(--tx)}button.gold{background:linear-gradient(135deg,#f6b73c,#ee7b30);color:#fff}button:disabled{opacity:.5}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px}.chip{flex:none;padding:7px 14px;border-radius:20px;background:var(--card);font-size:14px}.chip.on{background:var(--btn);color:var(--btx)}
+.out{margin-top:14px;line-height:1.55}label{display:block;padding:9px 10px;border-radius:10px;margin-top:4px;background:var(--bg)}
+label.g{background:rgba(46,158,79,.2)}label.r{background:rgba(220,60,60,.2)}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--bg);border-top:1px solid rgba(128,128,128,.15);padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px))}
+nav div{flex:1;text-align:center;font-size:11px;color:var(--hint);padding:4px 0}nav b{display:block;font-size:21px;font-weight:400}nav .on{color:var(--btn);font-weight:600}
+.card3{font-family:ui-monospace,monospace;font-size:20px;letter-spacing:1px;margin:8px 0}.lock{text-align:center;padding:24px 10px}
 </style></head><body>
-<main id="m"></main>
-<nav id="nav"></nav>
+<header><b>🎓 IELTS AI</b><span class="pill" id="pl" onclick="go('pro')"></span></header>
+<main id="m"></main><nav id="nav"></nav>
 <script>
-const tg=window.Telegram.WebApp;tg.ready();tg.expand();
-const $=s=>document.querySelector(s), m=$('#m');
-const tabs=[['write','✍️','Writing'],['speak','🎤','Speaking'],['read','📖','Reading'],['listen','🎧','Listening']];
-const SPEAK=["Describe your hometown. What do you like about it?","Talk about a book or film you enjoyed recently.","Describe a person who has influenced you.","What do you usually do on weekends?"];
-const READ={t:"Researchers at several universities have found that students who sleep at least seven hours a night remember new information better than those who sleep less. In one study, two groups learned a list of 40 words. One group slept normally, while the other stayed awake all night. After two days, the group that slept recalled about 20% more words. The researchers suggest that sleep helps the brain move new information into long-term memory. They also noted that a 20-minute nap can improve alertness, though the effect on memory is smaller.",
-q:[["Students who sleep seven hours remember better.","True"],["Both groups learned 60 words.","False"],["Napping helps memory more than night sleep.","False"],["The study involved children.","Not Given"]]};
-const LIST={t:"Hello, this is the Riverside Library. We are open from nine in the morning until six in the evening on weekdays. On Saturdays, we close at two. To join, you need a photo ID and a proof of address. Membership is free for students, and costs ten pounds a year for everyone else.",
-q:[["What time does the library close on weekdays?",["5 pm","6 pm","2 pm"],1],["What do you need to join?",["Only a student card","Photo ID and proof of address","Ten pounds"],1],["How much does it cost for non-students?",["Free","£2 per month","£10 per year"],2]]};
-function nav(t){$('#nav').innerHTML=tabs.map(x=>`<div class="${x[0]==t?'on':''}" onclick="go('${x[0]}')"><b>${x[1]}</b>${x[2]}</div>`).join('')}
-function go(t){nav(t);({write:wr,speak:sp,read:rd,listen:ls})[t]()}
-async function callAI(mode,text,box,btn){
-  if(text.trim().length<10){box.textContent="Matn juda qisqa.";return}
-  btn.disabled=true;box.textContent="Tekshiryapman... ⏳";
-  try{const r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:tg.initData,mode,text})});
-    const d=await r.json();
-    box.textContent=d.ok?d.text:d.error=='limit'?"Bugungi bepul limit tugadi 💎":d.error=='auth'?"Ilovani Telegram ichidan oching.":"Xatolik, keyinroq urinib ko'ring.";
+const tg=Telegram.WebApp;tg.ready();tg.expand();
+const $=s=>document.querySelector(s),m=$('#m');let ME={pro:false,left:5,limit:5,name:''};
+const TABS=[['home','🏠','Bosh'],['write','✍️','Writing'],['speak','🎤','Speaking'],['read','📖','Reading'],['listen','🎧','Listening']];
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const fmt=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>');
+async function api(p,b){const r=await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:tg.initData,...b})});return r.json()}
+function pill(){const e=$('#pl');e.className='pill'+(ME.pro?' pro':'');e.textContent=ME.pro?'💎 PRO':`Bepul ${ME.left}/${ME.limit}`}
+function S(){try{return JSON.parse(localStorage.st||'{}')}catch(e){return{}}}
+function log(k){const s=S(),d=new Date().toISOString().slice(0,10);s.days=s.days||[];if(!s.days.includes(d))s.days.push(d);s.n=s.n||{};s.n[k]=(s.n[k]||0)+1;try{localStorage.st=JSON.stringify(s)}catch(e){}}
+function streak(){const s=S().days||[];let c=0,d=new Date();while(s.includes(d.toISOString().slice(0,10))){c++;d.setDate(d.getDate()-1)}return c}
+function total(){const n=S().n||{};return Object.values(n).reduce((a,b)=>a+b,0)}
+function go(t){$('#nav').innerHTML=TABS.map(x=>`<div class="${x[0]==t?'on':''}" onclick="go('${x[0]}')"><b>${x[1]}</b>${x[2]}</div>`).join('');scrollTo(0,0);({home,write:wr,speak:sp,read:rd,listen:ls,pro})[t]()}
+function chips(arr,cur,fn){return `<div class="chips">${arr.map((x,i)=>`<div class="chip ${i==cur?'on':''}" onclick="${fn}(${i})">${x}</div>`).join('')}</div>`}
+async function ai(mode,text,box,btn){
+  btn.disabled=true;box.innerHTML='<span class="hint">AI tekshiryapti... ⏳ (10-20 soniya)</span>';
+  try{const d=await api('/api/ai',{mode,text});
+    if(d.ok){box.innerHTML=fmt(d.text);log(mode);if(d.left!=null)ME.left=d.left;pill()}
+    else if(d.error=='limit'){ME.left=0;pill();box.innerHTML=`<div class="card lock">🔒 Bugungi ${ME.limit} ta bepul tekshiruv tugadi.<br><span class="hint">Cheksiz foydalanish uchun Pro oling</span><button class="gold" onclick="go('pro')">💎 Pro olish</button></div>`}
+    else box.textContent=d.error=='auth'?"Ilovani Telegram ichidan oching.":"Xatolik yuz berdi, birozdan keyin urinib ko'ring."
   }catch(e){box.textContent="Internet xatosi."}
   btn.disabled=false}
-function wr(){m.innerHTML=`<h2>✍️ Writing</h2><p class="hint">Inglizcha matn yozing (essay yoki xat). AI band va xatolarni aytadi.</p><textarea id="t" placeholder="Write your essay here..."></textarea><button id="b">Tekshirish</button><div class="out" id="o"></div>`;
-  $('#b').onclick=()=>callAI('writing',$('#t').value,$('#o'),$('#b'))}
-function sp(){const q=SPEAK[Math.floor(Math.random()*SPEAK.length)];
-  m.innerHTML=`<h2>🎤 Speaking</h2><div class="card"><b>${q}</b></div><textarea id="t" placeholder="Javobingizni gapiring yoki yozing (inglizcha)..."></textarea><button class="alt" id="mic">🎙 Gapirib yozish</button><button id="b">Tekshirish</button><button class="alt" onclick="sp()">Boshqa savol</button><div class="out" id="o"></div>`;
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){$('#mic').style.display='none';$('#o').innerHTML='<span class="hint">Mikrofon bu yerda ishlamasa, klaviaturadagi 🎤 tugmasidan foydalaning.</span>'}
-  else $('#mic').onclick=()=>{const r=new SR();r.lang='en-US';r.onresult=e=>{$('#t').value+=' '+e.results[0][0].transcript};r.onerror=()=>{$('#o').textContent="Mikrofon ruxsat bering yoki klaviaturadan foydalaning."};r.start()};
-  $('#b').onclick=()=>callAI('speaking',"Question: "+q+"\nAnswer: "+$('#t').value,$('#o'),$('#b'))}
-function rd(){m.innerHTML=`<h2>📖 Reading</h2><div class="card">${READ.t}</div>`+READ.q.map((x,i)=>`<div class="card"><div>${i+1}. ${x[0]}</div>${['True','False','Not Given'].map(o=>`<label><input type="radio" name="r${i}" value="${o}"> ${o}</label>`).join('')}</div>`).join('')+`<button id="b">Natijani ko'rish</button><div class="out" id="o"></div>`;
-  $('#b').onclick=()=>{let s=0;READ.q.forEach((x,i)=>{const v=document.querySelector(`input[name=r${i}]:checked`);if(v&&v.value==x[1])s++});$('#o').innerHTML=`Natija: <b>${s}/${READ.q.length}</b><br><span class="hint">To'g'ri javoblar: ${READ.q.map(x=>x[1]).join(', ')}</span>`}}
-function ls(){m.innerHTML=`<h2>🎧 Listening</h2><button id="p">▶️ Audioni tinglash</button><p class="hint">Audio inglizcha o'qiladi. Istalgancha qayta tinglang.</p>`+LIST.q.map((x,i)=>`<div class="card"><div>${i+1}. ${x[0]}</div>${x[1].map((o,j)=>`<label><input type="radio" name="l${i}" value="${j}"> ${o}</label>`).join('')}</div>`).join('')+`<button id="b">Natijani ko'rish</button><div class="out" id="o"></div>`;
-  $('#p').onclick=()=>{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(LIST.t);u.lang='en-GB';u.rate=.9;speechSynthesis.speak(u)};
-  $('#b').onclick=()=>{let s=0;LIST.q.forEach((x,i)=>{const v=document.querySelector(`input[name=l${i}]:checked`);if(v&&+v.value==x[2])s++});$('#o').innerHTML=`Natija: <b>${s}/${LIST.q.length}</b>`}}
-go('write');
+/* HOME */
+function home(){const p=ME.pro?`<div class="hint">💎 Pro faol · ${ME.until} gacha</div>`:`<div class="hint">Bugun ${ME.left}/${ME.limit} AI tekshiruv qoldi</div><div class="bar"><i style="width:${ME.left/ME.limit*100}%"></i></div><button class="gold" style="margin-top:4px" onclick="go('pro')">💎 Pro ga o'tish — 40 000 so'm</button>`;
+m.innerHTML=`<div class="hero"><h2>Salom${ME.name?', '+esc(ME.name):''} 👋</h2><div class="hint">IELTS ga tayyorlanishni boshlaymizmi?</div><div style="margin-top:12px">${p}</div></div>
+<div class="row"><div class="card stat"><b>🔥 ${streak()}</b><span class="hint">kun ketma-ket</span></div><div class="card stat"><b>✅ ${total()}</b><span class="hint">bajarilgan mashq</span></div></div>
+<div class="grid">${TABS.slice(1).map(x=>`<div class="sk" onclick="go('${x[0]}')"><span>${x[1]}</span><b>${x[2]}</b></div>`).join('')}</div>`}
+/* WRITING */
+const WT=["Some people think children should start school at a very early age. Do the advantages outweigh the disadvantages?","Technology makes our lives easier. To what extent do you agree or disagree?","Some prefer living in big cities, others in small towns. Discuss both views and give your opinion.","Many young people spend too much time online. What problems does this cause and what can be done?"];let wi=0;
+function wsel(i){wi=i;wr()}
+function wr(){m.innerHTML=`<h2>✍️ Writing Task 2</h2><div class="hint">Mavzuni tanlang va kamida 120 ta so'z yozing</div>${chips(WT.map((_,i)=>'Mavzu '+(i+1)),wi,'wsel')}<div class="card"><b>${WT[wi]}</b></div><textarea id="t" placeholder="Write your essay here..."></textarea><div class="hint" id="wc">0 so'z</div><button id="b">Tekshirish</button><div class="out" id="o"></div>`;
+$('#t').oninput=e=>$('#wc').textContent=(e.target.value.trim().split(/\s+/).filter(Boolean).length)+" so'z";
+$('#b').onclick=()=>{const t=$('#t').value,n=t.trim().split(/\s+/).filter(Boolean).length;if(n<40){$('#o').textContent="Kamida 40 ta so'z yozing.";return}ai('writing',"Task: "+WT[wi]+"\n\nEssay:\n"+t,$('#o'),$('#b'))}}
+/* SPEAKING */
+const SQ=[["Describe your hometown.","What do you do in your free time?","Do you prefer mornings or evenings? Why?","What kind of food do you like?"],["Describe a person who influenced you. Say who, how you met, and why.","Describe a place you would like to visit."],["How has technology changed education?","Why do some people prefer to work from home?"]];let sp_=0,sq=0;
+function ssel(i){sp_=i;sq=0;sp()}
+function sp(){const q=SQ[sp_][sq%SQ[sp_].length];
+m.innerHTML=`<h2>🎤 Speaking</h2>${chips(['Part 1','Part 2','Part 3'],sp_,'ssel')}<div class="card"><b>${q}</b></div><textarea id="t" placeholder="Javobingizni inglizcha gapiring yoki yozing..."></textarea><button class="alt" id="mic">🎙 Gapirib yozish</button><button id="b">Tekshirish</button><button class="alt" onclick="sq++;sp()">Boshqa savol</button><div class="out" id="o"></div>`;
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(!SR){$('#mic').style.display='none';$('#o').innerHTML='<span class="hint">Mikrofon uchun klaviaturadagi 🎤 tugmasidan foydalaning.</span>'}
+else $('#mic').onclick=()=>{const r=new SR();r.lang='en-US';r.onresult=e=>{$('#t').value+=' '+e.results[0][0].transcript};r.onerror=()=>{$('#o').textContent="Mikrofonga ruxsat bering yoki klaviaturadan foydalaning."};r.start()};
+$('#b').onclick=()=>{if($('#t').value.trim().length<20){$('#o').textContent="Javob juda qisqa.";return}ai('speaking',"Question: "+q+"\nAnswer: "+$('#t').value,$('#o'),$('#b'))}}
+/* QUIZ */
+function quiz(items,k){return items.map((x,i)=>`<div class="card"><b>${i+1}. ${x[0]}</b>${x[1].map((o,j)=>`<label id="${k}${i}_${j}"><input type="radio" name="${k}${i}" value="${j}"> ${o}</label>`).join('')}</div>`).join('')+`<button id="qb">Natijani ko'rish</button><div class="out" id="qo"></div>`}
+function qcheck(items,k,skill){let s=0;items.forEach((x,i)=>{const v=document.querySelector(`input[name=${k}${i}]:checked`);$(`#${k}${i}_${x[2]}`).classList.add('g');if(v&&+v.value==x[2])s++;else if(v)$(`#${k}${i}_${v.value}`).classList.add('r')});
+$('#qo').innerHTML=`<div class="card stat"><b>${s}/${items.length}</b><span class="hint">to'g'ri javob</span></div>`;$('#qb').disabled=true;log(skill)}
+const TFN=["True","False","Not Given"];
+const RD=[{t:"Researchers at several universities have found that students who sleep at least seven hours a night remember new information better than those who sleep less. In one study, two groups learned a list of 40 words. One group slept normally, while the other stayed awake all night. After two days, the group that slept recalled about 20% more words. The researchers suggest that sleep helps the brain move new information into long-term memory. They also noted that a 20-minute nap can improve alertness, though the effect on memory is smaller.",q:[["Students who sleep seven hours remember better.",TFN,0],["Both groups learned 60 words.",TFN,1],["Napping helps memory more than night sleep.",TFN,1],["The study involved children.",TFN,2]]},
+{t:"Urban farming, the practice of growing food in cities, has expanded rapidly over the past decade. Rooftop gardens and vertical farms allow cities to produce vegetables close to where people live, reducing transport costs and emissions. However, critics argue that urban farms need large amounts of electricity for artificial lighting, which can cancel out the environmental benefits. Supporters respond that renewable energy can solve this problem. In Singapore, the government aims to produce 30 percent of the country's nutritional needs locally by 2030.",q:[["Urban farming has grown quickly in recent years.",TFN,0],["Vertical farms use no electricity.",TFN,1],["Singapore already produces 30 percent of its food.",TFN,1],["Farmers in Singapore receive government payments.",TFN,2]]}];
+const LS=[{t:"Hello, this is the Riverside Library. We are open from nine in the morning until six in the evening on weekdays. On Saturdays, we close at two. To join, you need a photo ID and a proof of address. Membership is free for students, and costs ten pounds a year for everyone else.",q:[["What time does the library close on weekdays?",["5 pm","6 pm","2 pm"],1],["What do you need to join?",["Only a student card","Photo ID and proof of address","Ten pounds"],1],["How much does it cost for non-students?",["Free","£2 per month","£10 per year"],2]]},
+{t:"Welcome to the City Gym. Our morning classes start at seven o'clock. Boxing is on Mondays, and yoga is on Tuesdays and Thursdays. A monthly pass costs thirty dollars, and a day pass is five dollars. Please bring your own towel.",q:[["When do morning classes start?",["6 am","7 am","8 am"],1],["Which day is boxing?",["Monday","Tuesday","Thursday"],0],["How much is a monthly pass?",["$5","$30","$50"],1],["What should members bring?",["A towel","A lock","An ID card"],0]]}];
+let ri=0,li=0,spd=.9;
+function lockCard(){return `<div class="card lock">🔒 Bu test faqat Pro uchun<button class="gold" onclick="go('pro')">💎 Pro olish</button></div>`}
+function rsel(i){ri=i;rd()}function lsel(i){li=i;ls()}
+function rd(){const h=`<h2>📖 Reading</h2>${chips(RD.map((_,i)=>'Test '+(i+1)+(i&&!ME.pro?' 🔒':'')),ri,'rsel')}`;
+if(ri&&!ME.pro){m.innerHTML=h+lockCard();return}
+m.innerHTML=h+`<div class="card">${RD[ri].t}</div>`+quiz(RD[ri].q,'r');$('#qb').onclick=()=>qcheck(RD[ri].q,'r','read')}
+function ls(){const h=`<h2>🎧 Listening</h2>${chips(LS.map((_,i)=>'Test '+(i+1)+(i&&!ME.pro?' 🔒':'')),li,'lsel')}`;
+if(li&&!ME.pro){m.innerHTML=h+lockCard();return}
+m.innerHTML=h+`<div class="row"><button id="p">▶️ Tinglash</button><button class="alt" id="sl">🐢 Sekin: ${spd<.9?'ha':"yo'q"}</button></div><div class="hint" style="margin-top:6px">Audio inglizcha o'qiladi, istalgancha qayta tinglang.</div><div style="height:10px"></div>`+quiz(LS[li].q,'l');
+$('#p').onclick=()=>{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(LS[li].t);u.lang='en-GB';u.rate=spd;speechSynthesis.speak(u)};
+$('#sl').onclick=()=>{spd=spd<.9?.9:.7;ls()};$('#qb').onclick=()=>{speechSynthesis.cancel();qcheck(LS[li].q,'l','listen')}}
+/* PRO */
+function copy(t,b){try{navigator.clipboard.writeText(t)}catch(e){}b.textContent='✅ Nusxalandi'}
+function compress(f){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>{const i=new Image();i.onload=()=>{const k=Math.min(1,1100/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.8))};i.onerror=no;i.src=r.result};r.onerror=no;r.readAsDataURL(f)})}
+function pro(){if(ME.pro){m.innerHTML=`<div class="hero"><h2>💎 Pro faol</h2><div class="hint">${ME.until} gacha cheksiz foydalanishingiz mumkin. Muddatni uzaytirish uchun pastdagi qadamlarni takrorlang.</div></div>`}else m.innerHTML='';
+m.innerHTML+=`<div class="hero"><h2>💎 Pro obuna</h2><div class="hint">30 kun uchun</div><h2 style="margin-top:8px">40 000 so'm</h2></div>
+<div class="card">✅ Cheksiz AI Writing va Speaking tekshiruvi<br>✅ Barcha Reading va Listening testlar<br>✅ Tez va batafsil tahlil</div>
+<div class="card"><b>1. Quyidagi kartaga o'tkazing</b><div class="card3">6262 5701 3419 2691</div><div class="hint">Boratova Zarnigor</div><button class="alt" onclick="copy('6262570134192691',this)">📋 Karta raqamini nusxalash</button></div>
+<div class="card"><b>2. Chek rasmini yuboring</b><div class="hint">To'lov skrinshotini tanlang</div><input type="file" accept="image/*" id="f" hidden><button class="alt" onclick="$('#f').click()" id="fb">🖼 Rasm tanlash</button><button id="sb" disabled>📤 Adminga yuborish</button><div class="out" id="po"></div></div>
+<div class="hint">Admin to'lovni tekshirib, odatda tez orada Pro ni yoqadi. Natija haqida bot sizga xabar yuboradi.</div>`;
+$('#f').onchange=e=>{if(e.target.files[0]){$('#fb').textContent='✅ '+e.target.files[0].name.slice(0,24);$('#sb').disabled=false}};
+$('#sb').onclick=async()=>{const f=$('#f').files[0];if(!f)return;$('#sb').disabled=true;$('#po').textContent='Yuborilmoqda... ⏳';
+try{const d=await api('/api/pay',{image:await compress(f)});$('#po').innerHTML=d.ok?'✅ Chek adminga yuborildi! Tasdiqlangach botdan xabar keladi.':"Yuborib bo'lmadi. Chekni botga to'g'ridan-to'g'ri yuboring."}catch(e){$('#po').textContent="Internet xatosi."}}}
+(async()=>{try{const d=await api('/api/me',{});if(d.ok)ME=d}catch(e){}pill();go(location.hash=='#pro'?'pro':'home')})();
 </script></body></html>
